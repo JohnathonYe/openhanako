@@ -94,6 +94,17 @@ export function AboutTab() {
         {t('settings.about.licenseToggle')}
       </button>
 
+      <section className="settings-section about-quit-section">
+        <p className="about-quit-desc">{t('settings.about.quitFullyDesc')}</p>
+        <button
+          type="button"
+          className="about-quit-fully-btn"
+          onClick={() => hana?.quitFully?.()}
+        >
+          {t('settings.about.quitFully')}
+        </button>
+      </section>
+
       {licenseOpen && (
         <pre className="about-license-text">{LICENSE_TEXT}</pre>
       )}

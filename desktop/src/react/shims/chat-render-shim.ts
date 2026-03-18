@@ -381,7 +381,7 @@ function extractToolDetail(name: string, args: Record<string, unknown> | undefin
       return extractHostname((args.url || '') as string);
     case 'web_search':
       return truncateHead((args.query || '') as string, 40);
-    case 'browser':
+    case 'single_use_browser':
       return extractHostname((args.url || '') as string);
     case 'search_memory':
       return truncateHead((args.query || '') as string, 40);

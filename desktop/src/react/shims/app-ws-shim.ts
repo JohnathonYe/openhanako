@@ -6,6 +6,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { useStore } from '../stores';
+
 declare function t(key: string, vars?: Record<string, string>): any;
 
 interface AppWsCtx {
@@ -419,7 +421,11 @@ function handleServerMessage(msg: any): void {
       break;
 
     case 'desk_changed':
-      _dk().loadDeskFiles();
+      if (msg.path != null) _dk().loadDeskFiles('', msg.path);
+      else _dk().loadDeskFiles();
+      break;
+    case 'jian_executing':
+      useStore.getState().setJianExecuting(!!msg.active);
       break;
 
     case 'file_output':

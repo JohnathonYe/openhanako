@@ -47,6 +47,7 @@ export function ActivityPanel() {
 
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [hbEnabled, setHbEnabled] = useState(true);
+  const [runNowLoading, setRunNowLoading] = useState(false);
   const containerRef = useRef<Element | null>(null);
   const t = window.t ?? ((p: string) => p);
 
@@ -82,6 +83,25 @@ export function ActivityPanel() {
       setHbEnabled(!next); // rollback
     }
   }, [hbEnabled]);
+
+  const runNowPatrol = useCallback(async () => {
+    if (runNowLoading) return;
+    setRunNowLoading(true);
+    try {
+      const res = await hanaFetch('/api/desk/heartbeat', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (data.error) return;
+      // 巡检异步执行，稍后刷新列表
+      setTimeout(() => {
+        hanaFetch('/api/desk/activities')
+          .then(r => r.json())
+          .then(d => setActivities(d.activities || []))
+          .catch(() => {});
+      }, 2000);
+    } finally {
+      setRunNowLoading(false);
+    }
+  }, [runNowLoading, setActivities]);
 
   const openSession = useCallback(async (activityId: string) => {
     try {
@@ -139,12 +159,22 @@ export function ActivityPanel() {
           <div id="activityListView">
             <div className="floating-panel-header">
               <h2 className="floating-panel-title">{t('activity.title')}</h2>
-              <div className="activity-hb-toggle">
-                <span className="hana-toggle-label">{t('activity.heartbeat')}</span>
+              <div className="activity-hb-row">
+                <div className="activity-hb-toggle">
+                  <span className="hana-toggle-label">{t('activity.heartbeat')}</span>
+                  <button
+                    className={'hana-toggle' + (hbEnabled ? ' on' : '')}
+                    onClick={toggleHeartbeat}
+                  />
+                </div>
                 <button
-                  className={'hana-toggle' + (hbEnabled ? ' on' : '')}
-                  onClick={toggleHeartbeat}
-                />
+                  type="button"
+                  className="activity-run-now-btn"
+                  onClick={runNowPatrol}
+                  disabled={runNowLoading}
+                >
+                  {runNowLoading ? t('activity.runNowBusy') : t('activity.runNow')}
+                </button>
               </div>
               <button className="floating-panel-close" onClick={close}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

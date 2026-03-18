@@ -5,6 +5,8 @@ export interface UiSlice {
   sidebarAutoCollapsed: boolean;
   jianOpen: boolean;
   jianAutoCollapsed: boolean;
+  /** 笺任务正在执行（心跳 Phase 2），用于显示「笺」字闪烁 */
+  jianExecuting: boolean;
   previewOpen: boolean;
   welcomeVisible: boolean;
   currentTab: TabType;
@@ -13,6 +15,7 @@ export interface UiSlice {
   setSidebarAutoCollapsed: (collapsed: boolean) => void;
   setJianOpen: (open: boolean) => void;
   setJianAutoCollapsed: (collapsed: boolean) => void;
+  setJianExecuting: (active: boolean) => void;
   setPreviewOpen: (open: boolean) => void;
   setWelcomeVisible: (visible: boolean) => void;
   setCurrentTab: (tab: TabType) => void;
@@ -28,6 +31,7 @@ export const createUiSlice = (
   sidebarAutoCollapsed: false,
   jianOpen: true,
   jianAutoCollapsed: false,
+  jianExecuting: false,
   previewOpen: false,
   welcomeVisible: true,
   currentTab: 'chat',
@@ -36,6 +40,7 @@ export const createUiSlice = (
   setSidebarAutoCollapsed: (collapsed) => set({ sidebarAutoCollapsed: collapsed }),
   setJianOpen: (open) => set({ jianOpen: open }),
   setJianAutoCollapsed: (collapsed) => set({ jianAutoCollapsed: collapsed }),
+  setJianExecuting: (active) => set({ jianExecuting: active }),
   setPreviewOpen: (open) => set({ previewOpen: open }),
   setWelcomeVisible: (visible) => set({ welcomeVisible: visible }),
   setCurrentTab: (tab) => set({ currentTab: tab }),

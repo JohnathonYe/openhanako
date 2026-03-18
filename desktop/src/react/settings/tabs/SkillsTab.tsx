@@ -12,11 +12,18 @@ export function SkillsTab() {
 
   const [reloading, setReloading] = useState(false);
 
+  // 先触发服务端 sync(skills2set→skillsDir)+reload，再拉列表，保证设置页看到的内置技能（含 cdp-browser-guide）为最新
   const loadSkills = useCallback(async () => {
     try {
-      const res = await hanaFetch('/api/skills');
+      const res = await hanaFetch('/api/skills/reload', { method: 'POST' });
       const data = await res.json();
-      useSettingsStore.setState({ skillsList: data.skills || [] });
+      if (data.skills) {
+        useSettingsStore.setState({ skillsList: data.skills });
+      } else {
+        const listRes = await hanaFetch('/api/skills');
+        const listData = await listRes.json();
+        useSettingsStore.setState({ skillsList: listData.skills || [] });
+      }
     } catch (err) {
       console.error('[skills] load failed:', err);
     }

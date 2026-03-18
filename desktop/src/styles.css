@@ -995,12 +995,41 @@ html[data-platform="linux"] .tb-toggle-right {
     font-size: 0.78rem;
 }
 
+.activity-hb-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    margin-right: var(--space-sm);
+}
+
 .activity-hb-toggle {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: auto;
-    margin-right: var(--space-sm);
+}
+
+.activity-run-now-btn {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    font-size: 0.75rem;
+    border: 1px solid var(--overlay-medium);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.activity-run-now-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-light, rgba(var(--accent-rgb), 0.08));
+}
+
+.activity-run-now-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
 }
 
 .activity-cards {
@@ -4097,6 +4126,16 @@ body.resizing .jian-sidebar-inner {
     letter-spacing: 0.05em;
 }
 
+/* 笺执行中：闪烁提示，避免用户以为卡住 */
+.jian-editor-label--executing {
+    animation: jian-executing-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes jian-executing-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+}
+
 .jian-editor-status {
     position: absolute;
     right: var(--space-sm);
@@ -5445,6 +5484,32 @@ body.resizing .jian-sidebar-inner {
     color: var(--error, #e05c5c);
 }
 
+.tool-caps-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+}
+
+.settings-tools-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.settings-tools-delete:hover {
+    color: var(--coral, #c06);
+    background: rgba(var(--coral-rgb, 204, 0, 102), 0.08);
+}
+
 /* Skills 列表块 */
 .skills-list-block {
     display: flex;
@@ -6169,6 +6234,34 @@ body.resizing .jian-sidebar-inner {
     max-height: 260px;
     overflow-y: auto;
     font-family: var(--font-mono);
+}
+
+.about-quit-section {
+    margin-top: var(--space-lg);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+.about-quit-desc {
+    margin: 0 0 var(--space-md);
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 100%;
+}
+.about-quit-fully-btn {
+    padding: var(--space-sm) var(--space-md);
+    font-size: 0.875rem;
+    color: var(--text);
+    background: var(--overlay-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+.about-quit-fully-btn:hover {
+    background: var(--overlay);
+    border-color: var(--text-muted);
 }
 
 /* section hint（Embedding / Utility 的显式配置提示） */

@@ -289,8 +289,21 @@
       "memory": "记忆",
       "work": "工作",
       "skills": "技能",
+      "tools": "工具",
       "bridge": "社交平台",
       "about": "关于"
+    },
+    "tools": {
+      "title": "工具",
+      "desc": "开启或关闭助手可用的工具，对新会话生效。",
+      "loading": "加载工具中…",
+      "kindBuiltin": "内置",
+      "kindCustom": "自定义",
+      "kindUserScript": "用户脚本",
+      "deleteTool": "删除工具",
+      "deleteConfirm": "确定删除工具「{name}」？对应脚本文件将被永久删除。",
+      "deleted": "工具已删除",
+      "deleteFailed": "删除失败"
     },
     "appearance": {
       "title": "外观",
@@ -378,7 +391,9 @@
       "fullAccessCancel": "取消",
       "fullAccessConfirm": "我了解风险，开启",
       "updateAvailable": "有新版本可用：v{{version}}",
-      "updateDownload": "下载"
+      "updateDownload": "下载",
+      "quitFullyDesc": "关闭窗口后应用会最小化到托盘、Server 继续在后台运行。若需彻底退出应用并关闭 Server，请点击下方按钮。",
+      "quitFully": "完全退出"
     },
     "me": {
       "title": "我",
@@ -725,6 +740,8 @@
   },
   "activity": {
     "title": "助手活动",
+    "runNow": "立即开始",
+    "runNowBusy": "执行中…",
     "empty": "暂时没有活动记录，日常巡检或定时任务执行后会出现在这里",
     "back": "返回",
     "heartbeat": "日常巡检",

@@ -289,8 +289,21 @@
       "memory": "Memory",
       "work": "Work",
       "skills": "Skills",
+      "tools": "Tools",
       "bridge": "Social",
       "about": "About"
+    },
+    "tools": {
+      "title": "Tools",
+      "desc": "Enable or disable tools for the assistant. Changes apply to new sessions.",
+      "loading": "Loading tools…",
+      "kindBuiltin": "Built-in",
+      "kindCustom": "Custom",
+      "kindUserScript": "User script",
+      "deleteTool": "Delete tool",
+      "deleteConfirm": "Delete tool \"{name}\"? The script file will be removed permanently.",
+      "deleted": "Tool deleted",
+      "deleteFailed": "Delete failed"
     },
     "appearance": {
       "title": "Appearance",
@@ -378,7 +391,9 @@
       "fullAccessCancel": "Cancel",
       "fullAccessConfirm": "I understand the risks, enable",
       "updateAvailable": "New version available: v{{version}}",
-      "updateDownload": "Download"
+      "updateDownload": "Download",
+      "quitFullyDesc": "Closing the window only hides the app to the tray; the Server keeps running. To quit the app and stop the Server, use the button below.",
+      "quitFully": "Quit completely"
     },
     "me": {
       "title": "Me",
@@ -725,6 +740,8 @@
   },
   "activity": {
     "title": "Activity",
+    "runNow": "Start now",
+    "runNowBusy": "Running…",
     "empty": "No activity yet. Patrol runs and scheduled tasks will appear here.",
     "back": "Back",
     "heartbeat": "Routine patrol",

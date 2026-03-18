@@ -543,10 +543,14 @@ function JianEditor() {
     }, 800);
   }, []);
 
+  const jianExecuting = useStore(s => s.jianExecuting);
+
   return (
     <div className="jian-editor">
       <div className="jian-editor-header">
-        <span className="jian-editor-label">{(window.t ?? ((p: string) => p))('desk.jianLabel')}</span>
+        <span className={`jian-editor-label${jianExecuting ? ' jian-editor-label--executing' : ''}`}>
+          {(window.t ?? ((p: string) => p))('desk.jianLabel')}
+        </span>
       </div>
       <span className="jian-editor-status" ref={statusRef}></span>
       <textarea

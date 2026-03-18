@@ -65,6 +65,7 @@ let serverProcess = null;
 let serverPort = null;
 let serverToken = null;
 let isQuitting = false;  // 区分关窗口（hide）和真正退出（quit）
+let fullQuitRequested = false; // 设置页「完全退出」或托盘「退出」：Server 退出时不要自动重启
 let tray = null;
 let reusedServerPid = null; // 复用已有 server 时记录其 PID，退出时发 SIGTERM
 let isExitingServer = false; // 只有托盘"退出"时才 kill server，其余路径仅关前端
@@ -185,6 +186,11 @@ async function startServer() {
           serverToken = existingInfo.token;
           reusedServerPid = existingInfo.pid;
           reused = true;
+          // 复用 server 时同步 skills2set 并重载技能，避免内置技能（如 cdp-browser-guide）仍是旧版
+          fetch(`http://127.0.0.1:${existingInfo.port}/api/skills/reload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${existingInfo.token}` },
+          }).catch(() => {});
         }
       } catch { /* health check 网络抖动，继续 kill 旧 server */ }
 
@@ -300,7 +306,7 @@ let _serverRestartAttempts = 0;
 function monitorServer() {
   if (!serverProcess) return;
   serverProcess.on("exit", async (code, signal) => {
-    if (isQuitting) return; // 正常退出流程
+    if (isQuitting || fullQuitRequested) return; // 正常退出或用户主动完全退出，不自动重启
     const reason = signal ? `信号 ${signal}` : `退出码 ${code}`;
     console.error(`[desktop] Server 意外退出 (${reason})`);
 
@@ -367,7 +373,7 @@ function createTray() {
     { label: "显示 Hanako", click: () => showPrimaryWindow() },
     { label: "设置", click: () => createSettingsWindow() },
     { type: "separator" },
-    { label: "退出", click: () => { isExitingServer = true; isQuitting = true; app.quit(); } },
+    { label: "退出", click: () => { fullQuitRequested = true; isExitingServer = true; isQuitting = true; app.quit(); } },
   ]);
 
   tray.setContextMenu(buildMenu());
@@ -1387,6 +1393,13 @@ ipcMain.handle("get-server-port", () => serverPort);
 ipcMain.handle("get-server-token", () => serverToken);
 ipcMain.handle("get-app-version", () => app.getVersion());
 ipcMain.handle("check-update", () => _updateInfo);
+/** 完全退出：关闭前端并关闭 Server（供设置页「完全退出」按钮调用） */
+ipcMain.handle("app-quit-fully", () => {
+  fullQuitRequested = true; // 先设标志，避免 Server 退出事件先于 before-quit 触发导致自动重启
+  isExitingServer = true;
+  isQuitting = true;
+  app.quit();
+});
 
 ipcMain.handle("open-settings", (_event, tab, theme) => createSettingsWindow(tab, theme));
 
@@ -2051,6 +2064,12 @@ app.on("before-quit", async (event) => {
   _browserViews.clear();
   _browserWebView = null;
   _currentBrowserSession = null;
+
+  // 完全退出时先销毁托盘，否则 window-all-closed 会因「有托盘」而不调用 app.quit()，进程无法退出、菜单栏仍显示 Hanako
+  if (tray && !tray.isDestroyed()) {
+    tray.destroy();
+    tray = null;
+  }
 
   // 完全退出：同时 kill server
   if (serverProcess && !serverProcess.killed) {
