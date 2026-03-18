@@ -799,7 +799,7 @@ function DeskCwdSkillsPanel() {
     }
     // 重新加载 CWD 技能面板
     try {
-      const cwd = (window.__hanaState as any)?.deskBasePath;
+      const cwd = useStore.getState().deskBasePath;
       if (cwd) {
         const res = await getDeskCtx().hanaFetch(`/api/desk/skills?dir=${encodeURIComponent(cwd)}`);
         const data = await res.json();
