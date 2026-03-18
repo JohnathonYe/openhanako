@@ -66,7 +66,37 @@ Based on the user interview, fill in these components:
 - **name**: Skill identifier
 - **description**: When to trigger, what it does. This is the primary triggering mechanism - include both what the skill does AND specific contexts for when to use it. All "when to use" info goes here, not in the body. Note: currently Claude has a tendency to "undertrigger" skills -- to not use them when they'd be useful. To combat this, please make the skill descriptions a little bit "pushy". So for instance, instead of "How to build a simple fast dashboard to display internal Anthropic data.", you might write "How to build a simple fast dashboard to display internal Anthropic data. Make sure to use this skill whenever the user mentions dashboards, data visualization, internal metrics, or wants to display any kind of company data, even if they don't explicitly ask for a 'dashboard.'"
 - **compatibility**: Required tools, dependencies (optional, rarely needed)
-- **the rest of the skill :)**
+- **the rest of the skill** — and it **must** satisfy the structure below (title, rich skill info, execution layer, construction layer).
+
+#### Required structure for generated SKILL.md body
+
+Every skill you generate must have a **clear title** and **two layers of content** so that the model (and the user) knows both what to run and what is being built.
+
+1. **Title (required)**  
+   Start the body with a single main `#` heading that names the skill in human-readable form (e.g. `# PDF Report Generator`, `# 数据看板搭建`). This is the skill’s display title, not the YAML `name`.
+
+2. **Richer skill context**  
+   Early in the body, include a short section that makes the skill self-describing and easier to combine with others:
+   - **When to use / when not to use**: Phrasing or situations that fit this skill vs. adjacent tasks that need a different skill or no skill.
+   - **Related skills or tools**: Other skills or tools that complement this one (e.g. “Use with the deploy skill for production”), or that users might confuse with it.
+   - **Prerequisites**: Required env, CLI, APIs, or permissions (beyond frontmatter `compatibility` if you need more detail in the body).
+   - **Inputs and outputs**: What the user typically provides (files, prompts, options) and what the skill produces (artifacts, formats, locations).
+
+3. **Execution layer (直接执行层)**  
+   Describe **concrete, runnable steps**: commands to run, scripts to invoke, tool calls, and the order of operations. Include:
+   - Exact commands or script paths (e.g. `python scripts/render.py`, `npm run build`).
+   - How to pass inputs (args, env, stdin, file paths).
+   - What to do when a step fails (retry, fallback, or when to stop and ask the user).
+   - Where intermediate and final outputs are written.
+
+4. **Construction layer (构建层)**  
+   Describe **what is being built**: artifacts, layout, and how pieces fit together. Include:
+   - **Deliverables**: Final files or artifacts (e.g. `report.pdf`, `dashboard/`, `out/data.csv`) and where they live.
+   - **Structure**: Directory layout, key files, or a small tree if the skill creates multiple files.
+   - **Templates / schemas**: If the skill uses templates, placeholders, or a fixed format (e.g. report sections, CSV columns), document them here so the model can fill them correctly.
+   - **Dependencies between steps**: Which steps produce inputs for later steps (e.g. “Step 2 uses the JSON from Step 1”).
+
+You can mix execution and construction in one flow (e.g. “Run X, which produces Y; then run Z on Y”) or use separate subsections like “## Steps” and “## Outputs and structure”. What matters is that both layers are present and clear.
 
 ### Skill Writing Guide
 
@@ -77,6 +107,10 @@ skill-name/
 ├── SKILL.md (required)
 │   ├── YAML frontmatter (name, description required)
 │   └── Markdown instructions
+│       ├── One # title (display name)
+│       ├── Rich skill context (when to use, related skills, prerequisites, inputs/outputs)
+│       ├── Execution layer (commands, scripts, tool calls, runnable steps)
+│       └── Construction layer (deliverables, structure, templates/schemas)
 └── Bundled Resources (optional)
     ├── scripts/    - Executable code for deterministic/repetitive tasks
     ├── references/ - Docs loaded into context as needed
@@ -297,6 +331,8 @@ This is the heart of the loop. You've run the test cases, the user has reviewed 
 3. **Explain the why.** Try hard to explain the **why** behind everything you're asking the model to do. Today's LLMs are *smart*. They have good theory of mind and when given a good harness can go beyond rote instructions and really make things happen. Even if the feedback from the user is terse or frustrated, try to actually understand the task and why the user is writing what they wrote, and what they actually wrote, and then transmit this understanding into the instructions. If you find yourself writing ALWAYS or NEVER in all caps, or using super rigid structures, that's a yellow flag — if possible, reframe and explain the reasoning so that the model understands why the thing you're asking for is important. That's a more humane, powerful, and effective approach.
 
 4. **Look for repeated work across test cases.** Read the transcripts from the test runs and notice if the subagents all independently wrote similar helper scripts or took the same multi-step approach to something. If all 3 test cases resulted in the subagent writing a `create_docx.py` or a `build_chart.py`, that's a strong signal the skill should bundle that script. Write it once, put it in `scripts/`, and tell the skill to use it. This saves every future invocation from reinventing the wheel.
+
+5. **Keep the required structure.** When revising, ensure the skill still has: a clear `#` title, richer skill context (when to use, related skills, prerequisites, inputs/outputs), an execution layer (concrete commands/scripts/steps), and a construction layer (deliverables, structure, templates). If feedback reveals missing runnable steps or unclear outputs, add or expand those sections.
 
 This task is pretty important (we are trying to create billions a year in economic value here!) and your thinking time is not the blocker; take your time and really mull things over. I'd suggest writing a draft revision and then looking at it anew and making improvements. Really do your best to get into the head of the user and understand what they want and need.
 
