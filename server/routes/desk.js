@@ -9,6 +9,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { execSync } from "child_process";
 
 /** 解析真实路径（跟踪 symlink），失败返回 null */
 function realPath(p) {
@@ -333,7 +334,7 @@ export default async function deskRoute(app, { engine, hub }) {
       // macOS: 隐藏 .agents 目录（chflags hidden）
       if (process.platform === "darwin") {
         const agentsDir = path.join(cwd, ".agents");
-        try { require("child_process").execSync(`chflags hidden "${agentsDir}"`); } catch {}
+        try { execSync(`chflags hidden "${agentsDir}"`); } catch {}
       }
 
       if (stat.isDirectory()) {
@@ -347,7 +348,6 @@ export default async function deskRoute(app, { engine, hub }) {
       const ext = path.extname(filePath).toLowerCase();
       if (ext === ".zip" || ext === ".skill") {
         // 解压到 skills 目录
-        const { execSync } = require("child_process");
         // 先解压到临时目录确认内容
         const tmpDir = path.join(skillsDir, `_tmp_${Date.now()}`);
         fs.mkdirSync(tmpDir, { recursive: true });
