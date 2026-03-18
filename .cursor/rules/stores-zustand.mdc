@@ -1,0 +1,38 @@
+---
+description: Zustand store 与 slice 的划分与命名约定
+globs: desktop/src/react/stores/**/*.ts
+alwaysApply: false
+---
+
+# Zustand Store 规范
+
+## 结构
+
+- 单一 store：`stores/index.ts` 中 `create<StoreState>()` 组合多个 slice，对外暴露 `useStore`
+- 每个 slice 一个文件：`agent-slice.ts`、`session-slice.ts`、`ui-slice.ts` 等
+- Slice 类型统一导出：`export type { AgentSlice, SessionSlice, ... }` 便于在组件中引用
+
+## Slice 形态
+
+- 每个 slice 导出 `createXxxSlice(set)` 与 `XxxSlice` 接口
+- `createXxxSlice` 接收 `set: (partial: Partial<XxxSlice>) => void`，返回一个满足 `XxxSlice` 的对象（state + actions）
+- 在 `index.ts` 中通过展开合并：`...createAgentSlice(set), ...createSessionSlice(set), ...`
+
+```typescript
+// agent-slice.ts
+export interface AgentSlice {
+  agentName: string;
+  setAgentName: (name: string) => void;
+  // ...
+}
+export const createAgentSlice = (set: (partial: Partial<AgentSlice>) => void): AgentSlice => ({
+  agentName: 'Hanako',
+  setAgentName: (name) => set({ agentName: name }),
+  // ...
+});
+```
+
+## 使用
+
+- 组件内：`const { agentName, setAgentName } = useStore()` 或按需解构
+- 在非 React 上下文（如 bridge、shim）中：`useStore.getState()` / `useStore.setState(patch)`

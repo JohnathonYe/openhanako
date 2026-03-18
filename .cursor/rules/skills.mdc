@@ -1,0 +1,39 @@
+---
+description: skills2set 技能目录结构与 SKILL.md 格式
+globs: skills2set/**/*.md, skills2set/**/SKILL.md
+alwaysApply: false
+---
+
+# Skills 规范（skills2set）
+
+## 目录结构
+
+- 每个技能一个目录，根目录下必须有 **SKILL.md**
+- 可选：LICENSE、assets、scripts、references 等与技能相关的资源
+
+```
+skill-name/
+├── SKILL.md     # 必需，YAML frontmatter + Markdown 正文
+└── ...
+```
+
+## SKILL.md 格式
+
+- 使用 **YAML frontmatter**，至少包含：
+  - **name**：技能标识符
+  - **description**：何时触发、做什么；会用于技能选取，需包含“何时使用”的语境（中英文均可）
+- 可选：**compatibility**（依赖、工具要求等）
+
+```markdown
+---
+name: skill-creator
+description: "Create new skills, modify and improve existing skills..."
+---
+
+# Skill Creator
+正文说明...
+```
+
+## 与 Cursor 规则的区别
+
+- SKILL.md 面向 **Hanako Agent / Pi 运行时** 的技能行为说明，不是 Cursor 的 `.cursor/rules`；本仓库的 Cursor 规则在 `.cursor/rules/*.mdc`

@@ -1,0 +1,40 @@
+---
+description: OpenHanako 项目结构、技术栈与模块职责
+alwaysApply: true
+---
+
+# OpenHanako 项目概览
+
+## 架构
+
+- **core/** — 引擎编排层 + Manager（HanaEngine 为 Thin Facade，委托 AgentManager / SessionCoordinator / ConfigCoordinator / ChannelManager / ModelManager / PreferencesManager / SkillManager）
+- **lib/** — 核心库：memory、tools、sandbox、bridge、desk、channels、llm、oauth 等
+- **server/** — Fastify 5 HTTP + WebSocket，路由在 `server/routes/*.js`
+- **hub/** — 调度器、频道路由、事件总线（独立于当前会话）
+- **desktop/** — Electron 38 主进程；前端在 `desktop/src`（React 19 + Vite 7 渐进迁移中，部分仍为旧 JS/CSS）
+- **skills2set/** — 内置技能定义（SKILL.md + 资源）
+- **tests/** — Vitest 测试
+
+## 技术栈
+
+| 层级 | 技术 |
+|------|------|
+| 桌面 | Electron 38 |
+| 前端 | React 19 + Vite 7，路径别名 `@/` → `desktop/src/react` |
+| 服务端 | Fastify 5，ESM |
+| 后端核心 | Node ≥20，ESM（core/lib/server 均为 .js） |
+| 数据库 | better-sqlite3（WAL） |
+| 测试 | Vitest |
+
+## 常用命令
+
+- `npm start` — 构建前端 + 启动 Electron
+- `npm run start:vite` — Vite HMR 开发
+- `npm run typecheck` — TypeScript 检查（仅覆盖 desktop/src）
+- `npm test` — Vitest 运行
+
+## 约定
+
+- 后端（core/lib/server）使用 **ESM**（`import`/`export`），文件扩展名 `.js`
+- 前端 React 代码在 `desktop/src/react`，使用 **TypeScript**（`.ts`/`.tsx`）
+- 用户数据目录：`~/.hanako`，可通过环境变量 `HANA_HOME` 覆盖
