@@ -391,12 +391,14 @@ export class AgentManager {
   }
 
   _createAgentInstance(agentDir, getOwnerIds) {
+    const hanakoHome = path.dirname(this._d.agentsDir);
     const ag = new Agent({
       agentDir,
       productDir: this._d.productDir,
       userDir: this._d.userDir,
       channelsDir: this._d.channelsDir,
       agentsDir: this._d.agentsDir,
+      hanakoHome,
       searchConfigResolver: () => this._d.getSearchConfig(),
     });
     ag._getOwnerIds = getOwnerIds;

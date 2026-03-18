@@ -12,8 +12,10 @@ import {
   createAgentSession,
   SessionManager,
 } from "@mariozechner/pi-coding-agent";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
+import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
 
 const log = createModuleLogger("session");
 
@@ -89,7 +91,7 @@ export class SessionCoordinator {
     // 否则首轮 prompt 会沿用上一个 session 的 system prompt。
     agent.setMemoryEnabled(memoryEnabled);
 
-    const { tools: sessionTools, customTools: sessionCustomTools } = this._d.buildTools(effectiveCwd);
+    const { tools: sessionTools, customTools: sessionCustomTools } = await this._d.buildTools(effectiveCwd);
     const { session } = await createAgentSession({
       cwd: effectiveCwd,
       sessionManager: sessionMgr,
@@ -100,11 +102,15 @@ export class SessionCoordinator {
       resourceLoader: this._d.getResourceLoader(),
       tools: sessionTools,
       customTools: sessionCustomTools,
+      streamFn: wrapStreamFnForInvokeXml(streamSimple),
     });
     const elapsed = Date.now() - t0;
     log.log(`session created (${elapsed}ms), model=${models.currentModel?.name || "?"}`);
     this._session = session;
     this._sessionStarted = false;
+
+    // 按当前「操作电脑」状态过滤工具：未开启时禁用 cdp_local_browser、single_use_browser、create_script_tool、install_skill 及技能 cdp-browser-guide
+    if (this._d.syncPlanModeToSession) this._d.syncPlanModeToSession();
 
     // 事件转发
     const sessionPath = session.sessionManager?.getSessionFile?.();
@@ -157,19 +163,19 @@ export class SessionCoordinator {
     if (existing) {
       if (this._session && this._session !== existing.session) {
         const oldSp = this._session.sessionManager?.getSessionFile?.();
-        if (oldSp) await this._d.getAgent()._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
+        if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
       }
       this._session = existing.session;
-      this._d.getAgent().setMemoryEnabled(memoryEnabled);
+      this._d.getAgent()?.setMemoryEnabled(memoryEnabled);
       return existing.session;
     }
 
     // 不在 map 中，先 flush 当前再新建
     if (this._session) {
       const oldSp = this._session.sessionManager?.getSessionFile?.();
-      if (oldSp) await this._d.getAgent()._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
+      if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
     }
-    const sessionMgr = SessionManager.open(sessionPath, this._d.getAgent().sessionDir);
+    const sessionMgr = SessionManager.open(sessionPath, this._d.getAgent()?.sessionDir);
     const cwd = sessionMgr.getCwd?.() || undefined;
     return this.createSession(sessionMgr, cwd, memoryEnabled);
   }
@@ -180,7 +186,7 @@ export class SessionCoordinator {
     const promptOpts = opts?.images?.length ? { images: opts.images } : undefined;
     await this._session.prompt(text, promptOpts);
     const sp = this._session.sessionManager?.getSessionFile?.();
-    if (sp) this._d.getAgent()._memoryTicker?.notifyTurn(sp);
+    if (sp) this._d.getAgent()?._memoryTicker?.notifyTurn(sp);
   }
 
   async abort() {
@@ -214,7 +220,7 @@ export class SessionCoordinator {
   async closeAllSessions() {
     if (this._session) {
       const curSp = this._session.sessionManager?.getSessionFile?.();
-      if (curSp) this._d.getAgent()._memoryTicker?.notifySessionEnd(curSp);
+      if (curSp) this._d.getAgent()?._memoryTicker?.notifySessionEnd(curSp);
     }
     for (const [, entry] of this._sessions) {
       if (entry.session.isStreaming) {
@@ -326,7 +332,7 @@ export class SessionCoordinator {
       resourceLoader: this._d.getResourceLoader(),
       allSkills:      skills.allSkills,
       getSkillsForAgent: (ag) => skills.getSkillsForAgent(ag),
-      buildTools:     (cwd, customTools, opts) => this._d.buildTools(cwd, customTools, opts),
+      buildTools:     (cwd, customTools, opts) => this._d.buildTools(cwd, customTools, opts), // async
       resolveModel:   (agentConfig) => {
         let id = agentConfig?.models?.chat;
         // 非 active agent 可能没有配 models.chat（模板默认为空），回退到全局默认模型
@@ -419,7 +425,7 @@ export class SessionCoordinator {
       }
       const execModel = models.resolveExecutionModel(resolvedModel);
       tempSessionMgr = SessionManager.create(execCwd, sessionDir);
-      const { tools: allBuiltinTools, customTools: allCustomTools } = this._d.buildTools(
+      const { tools: allBuiltinTools, customTools: allCustomTools } = await this._d.buildTools(
         execCwd, targetAgent.tools, { agentDir: targetAgent.agentDir }
       );
 
@@ -454,6 +460,7 @@ export class SessionCoordinator {
         resourceLoader: execResourceLoader,
         tools: actTools,
         customTools: actCustomTools,
+        streamFn: wrapStreamFnForInvokeXml(streamSimple),
       });
 
       let replyText = "";
@@ -486,6 +493,30 @@ export class SessionCoordinator {
       }
 
       const sessionPath = session.sessionManager?.getSessionFile?.() || null;
+
+      // 流未产出 text_delta 时，从 persist 的 session 文件补全最后一条 assistant 文本（供巡检笺 COMPLETED 解析等）
+      if (replyText === "" && sessionPath && opts.persist) {
+        try {
+          const raw = fs.readFileSync(sessionPath, "utf-8");
+          let lastAssistantText = "";
+          for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const entry = JSON.parse(line);
+              if (entry.type !== "message" || !entry.message) continue;
+              const msg = entry.message;
+              if (msg.role !== "assistant") continue;
+              const content = msg.content;
+              if (Array.isArray(content)) {
+                lastAssistantText = content.filter(b => b.type === "text" && b.text).map(b => b.text).join("");
+              } else if (typeof content === "string") {
+                lastAssistantText = content;
+              }
+            } catch { /* 跳过损坏行 */ }
+          }
+          if (lastAssistantText) replyText = lastAssistantText;
+        } catch {}
+      }
 
       if (!opts.persist && sessionPath) {
         try { fs.unlinkSync(sessionPath); } catch {}

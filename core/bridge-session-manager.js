@@ -11,7 +11,9 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { debugLog } from "../lib/debug-log.js";
+import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 
 const STEER_PREFIX = "（插话，无需 MOOD）\n";
@@ -156,13 +158,14 @@ export class BridgeSessionManager {
           thinkingLevel: "none",
           resourceLoader: tempResourceLoader,
           settingsManager: this._createSettings(chatModel),
+          streamFn: wrapStreamFnForInvokeXml(streamSimple),
         };
       } else {
         // owner 模式：完整 agent
         const prefs = this._deps.getPreferences();
         const bridgeReadOnly = !!prefs.bridge?.readOnly;
         const bridgeCwd = homeCwd;
-        const { tools: baseTools, customTools: baseCustomTools } = this._deps.buildTools(bridgeCwd);
+        const { tools: baseTools, customTools: baseCustomTools } = await this._deps.buildTools(bridgeCwd);
 
         const bridgeTools = bridgeReadOnly
           ? baseTools.filter(t => READ_ONLY_BUILTIN_TOOLS.includes(t.name))
@@ -189,6 +192,7 @@ export class BridgeSessionManager {
           tools: bridgeTools,
           customTools: bridgeCustomTools,
           settingsManager: this._createSettings(ownerModel),
+          streamFn: wrapStreamFnForInvokeXml(streamSimple),
         };
       }
 

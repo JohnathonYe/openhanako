@@ -23,11 +23,13 @@ import { createChannelTool } from "../lib/tools/channel-tool.js";
 import { createAskAgentTool } from "../lib/tools/ask-agent-tool.js";
 import { createDmTool } from "../lib/tools/dm-tool.js";
 import { createBrowserTool } from "../lib/tools/browser-tool.js";
+import { createCdpBrowserTool } from "../lib/tools/cdp-browser-tool.js";
 import { createPinnedMemoryTools } from "../lib/tools/pinned-memory.js";
 import { createExperienceTools } from "../lib/tools/experience.js";
 import { createInstallSkillTool } from "../lib/tools/install-skill.js";
 import { createNotifyTool } from "../lib/tools/notify-tool.js";
 import { createDelegateTool } from "../lib/tools/delegate-tool.js";
+import { createCreateScriptTool } from "../lib/tools/create-script-tool.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import { runCompatChecks } from "../lib/compat/index.js";
@@ -39,12 +41,13 @@ export class Agent {
    * @param {string} opts.productDir - 产品模板目录（ishiki.example.md, yuan 模板等）
    * @param {string} opts.userDir    - 用户数据目录（user.md, 用户头像）—— 跨助手共享
    */
-  constructor({ agentDir, productDir, userDir, channelsDir, agentsDir, searchConfigResolver }) {
+  constructor({ agentDir, productDir, userDir, channelsDir, agentsDir, hanakoHome, searchConfigResolver }) {
     this.agentDir = agentDir;
     this.productDir = productDir;
     this.userDir = userDir;
     this.channelsDir = channelsDir || null;
     this.agentsDir = agentsDir || null;
+    this.hanakoHome = hanakoHome || path.dirname(path.dirname(agentDir));
     this._searchConfigResolver = searchConfigResolver || null;
 
     // 路径
@@ -87,7 +90,9 @@ export class Agent {
     this._artifactTool = null;
     this._channelTool = null;
     this._browserTool = null;
+    this._cdpBrowserTool = null;
     this._notifyTool = null;
+    this._createScriptTool = null;
   }
 
   // ════════════════════════════
@@ -228,9 +233,15 @@ export class Agent {
     this._presentFilesTool = createPresentFilesTool();
     this._artifactTool = createArtifactTool();
     this._browserTool = createBrowserTool();
+    this._cdpBrowserTool = createCdpBrowserTool({
+      port: this._config?.cdp?.port ?? 9222,
+      autoLaunch: this._config?.cdp?.auto_launch !== false,
+      userDataDir: this._config?.cdp?.user_data_dir,
+    });
     this._notifyTool = createNotifyTool({
       onNotify: (title, body) => this._notifyHandler?.(title, body),
     });
+    this._createScriptTool = createCreateScriptTool({ hanakoHome: this.hanakoHome });
 
     // 9. 频道工具 + 私信工具（需要 channelsDir 和 agentsDir）
     if (this.channelsDir && this.agentsDir) {
@@ -374,9 +385,11 @@ export class Agent {
       this._askAgentTool,
       this._dmTool,
       this._browserTool,
+      this._cdpBrowserTool,
       this._installSkillTool,
       this._notifyTool,
       this._delegateTool,
+      this._createScriptTool,
     ].filter(Boolean);
   }
 
@@ -610,34 +623,32 @@ export class Agent {
           "Not for artifacts: short text replies, conversational answers, single-line code snippets (show directly in the message)."
       );
       parts.push(isZh
-        ? "\n## 浏览器使用规则\n\n" +
-          "你有一个浏览器工具（browser），可以打开网页、浏览、点击、输入。\n\n" +
-          "### 工具选择优先级（必须遵守）\n\n" +
-          "获取网页信息时，按以下顺序选择工具：\n" +
-          "1. **web_search** — 查找信息、获取 URL。大多数「帮我查一下 XX」的请求用这个就够了\n" +
-          "2. **web_fetch** — 已知 URL，需要提取页面文字内容。简单抓取必须用这个\n" +
-          "3. **browser** — 只在以下情况使用：页面需要登录/身份验证、需要填表或点击交互、web_fetch 返回的内容为空或不完整（JS 动态渲染页面）、需要查看页面视觉布局\n\n" +
-          "**禁止**在 web_search 或 web_fetch 能完成的场景下启动浏览器。浏览器启动成本高、会打开窗口干扰用户。\n\n" +
-          "### 浏览器操作规则\n\n" +
-          "1. 首次使用前必须调用 browser(action: \"start\") 启动浏览器\n" +
-          "2. 优先使用 snapshot 感知页面（文本格式，成本低），只在需要视觉布局信息时用 screenshot\n" +
-          "3. snapshot 返回的 [ref] 编号在页面变化后会失效。navigate、click 等操作会自动返回新的 snapshot，不需要手动再调 snapshot\n" +
-          "4. 如果需要点击或输入但 ref 已失效，先调用 snapshot 获取最新编号\n" +
-          "5. 用完浏览器后调用 browser(action: \"stop\") 关闭，避免资源浪费"
-        : "\n## Browser Usage Rules\n\n" +
-          "You have a browser tool that can open web pages, browse, click, and type.\n\n" +
-          "### Tool Selection Priority (mandatory)\n\n" +
-          "When fetching web information, choose tools in this order:\n" +
-          "1. **web_search** — Find information, get URLs. Most \"look up XX\" requests are handled by this alone\n" +
-          "2. **web_fetch** — Known URL, need to extract page text. Simple scraping must use this\n" +
-          "3. **browser** — Only use when: the page requires login/authentication, form filling or click interaction is needed, web_fetch returns empty or incomplete content (JS-rendered pages), or you need to see visual layout\n\n" +
-          "**Do not** launch the browser when web_search or web_fetch can do the job. Browser startup is expensive and opens a window that interrupts the user.\n\n" +
-          "### Browser Operation Rules\n\n" +
-          "1. Before first use, call browser(action: \"start\") to launch\n" +
-          "2. Prefer snapshot for page awareness (text format, low cost); only use screenshot when visual layout info is needed\n" +
-          "3. [ref] numbers from snapshot become invalid after page changes. navigate, click, etc. automatically return a new snapshot — no need to manually call snapshot again\n" +
-          "4. If you need to click or type but ref is stale, call snapshot first to get the latest numbers\n" +
-          "5. When done with the browser, call browser(action: \"stop\") to close and free resources"
+        ? "\n## 单次使用浏览器规则\n\n" +
+          "你有一个单次使用浏览器工具（single_use_browser），用于无需用户登录、单次访问的网页浏览。\n\n" +
+          "### 何时使用（必须遵守）\n\n" +
+          "获取网页信息时优先用 web_search 或 web_fetch；仅在以下情况使用 single_use_browser：\n" +
+          "- 页面**不需要**用户登录或身份验证\n" +
+          "- 单次访问即可完成（查一条信息、截一张图、读一个公开页）\n" +
+          "- web_fetch 无法获取内容（如 JS 渲染页）或需要看视觉布局\n\n" +
+          "**禁止**在需要用户登录的页面使用 single_use_browser；**禁止**在 web_search/web_fetch 能完成时启动浏览器。用完后必须调用 single_use_browser(action: \"stop\") 关闭。\n\n" +
+          "### 操作规则\n\n" +
+          "1. 使用前调用 single_use_browser(action: \"start\")，完成后调用 single_use_browser(action: \"stop\")\n" +
+          "2. 优先用 snapshot 感知页面，仅在需要视觉信息时用 screenshot\n" +
+          "3. [ref] 在页面变化后失效，navigate/click 会返回新 snapshot\n" +
+          "4. 点击或输入前若 ref 失效，先调用 snapshot 获取最新编号"
+        : "\n## Single-use browser rules\n\n" +
+          "You have a single-use browser tool (single_use_browser) for one-off web visits when no user login is required.\n\n" +
+          "### When to use (mandatory)\n\n" +
+          "Prefer web_search or web_fetch for web information. Use single_use_browser only when:\n" +
+          "- The page does NOT require user login or authentication\n" +
+          "- A single visit is enough (one lookup, one screenshot, one public page)\n" +
+          "- web_fetch cannot get the content (e.g. JS-rendered) or you need visual layout\n\n" +
+          "Do NOT use single_use_browser for pages that require login; do NOT launch it when web_search or web_fetch can do the job. Always call single_use_browser(action: \"stop\") when done.\n\n" +
+          "### Operation rules\n\n" +
+          "1. Call single_use_browser(action: \"start\") before use, single_use_browser(action: \"stop\") when done\n" +
+          "2. Prefer snapshot for page awareness; use screenshot only when visual info is needed\n" +
+          "3. [ref] from snapshot becomes invalid after page changes; navigate/click return a new snapshot\n" +
+          "4. If ref is stale before click/type, call snapshot first to get latest refs"
       );
     }
 

@@ -22,6 +22,12 @@ const log = createModuleLogger("config");
 /** Plan Mode / Bridge 只读工具名白名单 */
 export const READ_ONLY_BUILTIN_TOOLS = ["read", "grep", "find", "ls"];
 
+/** 仅在「操作电脑」开关打开时可用的 custom 工具名（关闭时从 active 中排除） */
+export const PLAN_MODE_ONLY_CUSTOM_TOOLS = ["cdp_local_browser", "single_use_browser", "create_script_tool", "install_skill"];
+
+/** 仅在这些工具可用时才有意义的技能（关闭「操作电脑」时从 agent 可见技能中排除，避免模型尝试调用不可用工具） */
+export const PLAN_MODE_ONLY_SKILLS = ["cdp-browser-guide"];
+
 /** 全局共享模型字段 → preferences key 映射 */
 export const SHARED_MODEL_KEYS = [
   ["utility",        "utility_model"],
@@ -277,7 +283,9 @@ export class ConfigCoordinator {
       session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames]);
     } else {
       const allNames = allBuiltInTools.map(t => t.name);
-      const customNames = (agent.tools || []).map(t => t.name);
+      const customNames = (agent.tools || [])
+        .map(t => t.name)
+        .filter((name) => !PLAN_MODE_ONLY_CUSTOM_TOOLS.includes(name));
       session.setActiveToolsByName([...allNames, ...customNames]);
     }
 

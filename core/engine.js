@@ -24,13 +24,14 @@ import {
 
 const allBuiltInTools = [...codingTools, grepTool, findTool, lsTool];
 
+import { syncSkills } from "./first-run.js";
 import { PreferencesManager } from "./preferences-manager.js";
 import { ModelManager } from "./model-manager.js";
 import { SkillManager } from "./skill-manager.js";
 import { BridgeSessionManager } from "./bridge-session-manager.js";
 import { AgentManager } from "./agent-manager.js";
 import { SessionCoordinator } from "./session-coordinator.js";
-import { ConfigCoordinator, SHARED_MODEL_KEYS } from "./config-coordinator.js";
+import { ConfigCoordinator, PLAN_MODE_ONLY_SKILLS, SHARED_MODEL_KEYS } from "./config-coordinator.js";
 import { ChannelManager } from "./channel-manager.js";
 import {
   summarizeTitle as _summarizeTitle,
@@ -40,6 +41,9 @@ import {
 } from "./llm-utils.js";
 import { debugLog } from "../lib/debug-log.js";
 import { createSandboxedTools } from "../lib/sandbox/index.js";
+import { getToolRegistry } from "../lib/tools/registry.js";
+import { loadUserScriptTools } from "../lib/tools/user-script-loader.js";
+import { wrapToolWithDebugLog } from "../lib/tools/tool-debug-log.js";
 
 export class HanaEngine {
   /**
@@ -110,6 +114,7 @@ export class HanaEngine {
       getActivityStore: (id) => this.getActivityStore(id),
       getAgentById: (id) => this._agentMgr.getAgent(id),
       listAgents: () => this.listAgents(),
+      syncPlanModeToSession: () => this.setPlanMode(this.planMode),
     });
 
     // ── Config Coordinator ──
@@ -265,6 +270,10 @@ export class HanaEngine {
   getPreferences() { return this._readPreferences(); }
   savePreferences(p) { return this._writePreferences(p); }
 
+  getToolsDisabled() { return this._prefs.getToolsDisabled(); }
+  setToolsDisabled(disabled) { return this._prefs.setToolsDisabled(disabled); }
+  getToolRegistry() { return getToolRegistry(this.hanakoHome); }
+
   // ════════════════════════════
   //  Channel 代理（→ ChannelManager）
   // ════════════════════════════
@@ -288,7 +297,13 @@ export class HanaEngine {
   _syncAgentSkills() { this._skills.syncAgentSkills(this.agent); }
   _syncAllAgentSkills() { for (const ag of this._agentMgr.agents.values()) this._skills.syncAgentSkills(ag); }
   getAllSkills() { return this._skills.getAllSkills(this.agent); }
-  _getSkillsForAgent(ag) { return this._skills.getSkillsForAgent(ag); }
+  _getSkillsForAgent(ag) {
+    const result = this._skills.getSkillsForAgent(ag);
+    if (!this._configCoord.planMode && result.skills?.length) {
+      result.skills = result.skills.filter(s => !PLAN_MODE_ONLY_SKILLS.includes(s.name));
+    }
+    return result;
+  }
   get skillsDir() { return this._skills.skillsDir; }
   get userSkillsDir() { return this._skills.skillsDir; }
   get learnedSkillsDir() { return path.join(this.agent.agentDir, "learned-skills"); }
@@ -296,6 +311,11 @@ export class HanaEngine {
   get authJsonPath() { return this._models.authJsonPath; }
 
   async reloadSkills() {
+    // 与 init 一致：先从 skills2set 覆盖同步到 skillsDir，再 reload，避免复用 server 或仅点「重载」时仍用旧内容
+    const skillsDir = this._skills.skillsDir;
+    const skillsSrc = path.join(this.productDir, "..", "skills2set");
+    if (fs.existsSync(skillsSrc)) syncSkills(skillsSrc, skillsDir);
+
     await this._skills.reload(this._resourceLoader, this._agentMgr.agents);
     this._resourceLoader.getSystemPrompt = () => this.agent.systemPrompt;
     this._resourceLoader.getSkills = () => this._getSkillsForAgent(this.agent);
@@ -339,6 +359,9 @@ export class HanaEngine {
     const t_rl = Date.now();
     const skillsDir = path.join(this.hanakoHome, "skills");
     fs.mkdirSync(skillsDir, { recursive: true });
+    // 每次 init 从项目 skills2set 覆盖同步，保证重启后看到最新内置技能
+    const skillsSrc = path.join(this.productDir, "..", "skills2set");
+    if (fs.existsSync(skillsSrc)) syncSkills(skillsSrc, skillsDir);
     this._skills = new SkillManager({ skillsDir });
     this._resourceLoader = new DefaultResourceLoader({
       systemPromptOverride: () => this.agent.systemPrompt,
@@ -424,19 +447,29 @@ export class HanaEngine {
   //  工具构建
   // ════════════════════════════
 
-  buildTools(cwd, customTools, opts = {}) {
-    const ct = customTools || this.agent.tools;
+  async buildTools(cwd, customTools, opts = {}) {
+    const disabledSet = new Set(this.getToolsDisabled());
+    const baseCt = customTools || this.agent.tools;
+    const userTools = await loadUserScriptTools(this.hanakoHome);
+    const mergedCt = Array.isArray(baseCt) ? [...baseCt, ...userTools] : [...userTools];
+    const ct = mergedCt.filter((t) => t && !disabledSet.has(t.name));
+
     const effectiveAgentDir = opts.agentDir || this.agent.agentDir;
     const effectiveWorkspace = opts.workspace !== undefined ? opts.workspace : this.homeCwd;
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     const effectiveMode = opts.mode || (sandboxEnabled ? "standard" : "full-access");
 
-    return createSandboxedTools(cwd, ct, {
+    const result = createSandboxedTools(cwd, ct, {
       agentDir: effectiveAgentDir,
       workspace: effectiveWorkspace,
       hanakoHome: this.hanakoHome,
       mode: effectiveMode,
     });
+    result.tools = result.tools
+      .filter((t) => !disabledSet.has(t.name))
+      .map(wrapToolWithDebugLog);
+    result.customTools = (result.customTools || []).map(wrapToolWithDebugLog);
+    return result;
   }
 
   // ════════════════════════════
