@@ -99,7 +99,10 @@ async function switchSession(path: string): Promise<void> {
     ctx!.loadDeskFiles('');
     renderSessionList();
 
-    // 切换会话后刷新 context ring
+    // 切换会话后刷新 context ring：先重置旧值，再请求新值
+    state().contextTokens = null;
+    state().contextWindow = null;
+    state().contextPercent = null;
     if (state().ws?.readyState === WebSocket.OPEN) {
       state().ws.send(JSON.stringify({ type: 'context_usage' }));
     }
@@ -125,6 +128,11 @@ async function createNewSession(): Promise<void> {
   state().sessionAgent = null;
   state().pendingNewSession = true;
   state().browserRunning = false;
+
+  // 重置 context ring
+  state().contextTokens = null;
+  state().contextWindow = null;
+  state().contextPercent = null;
   state().browserUrl = null;
   state().browserThumbnail = null;
   const { renderBrowserCard } = (window as any).HanaModules.artifacts;
