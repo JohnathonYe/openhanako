@@ -87,7 +87,19 @@ export class Scheduler {
       registryPath: path.join(agent.deskDir, "jian-registry.json"),
       overwatchPath: path.join(agent.deskDir, "overwatch.md"),
       onBeat: (prompt) => this._executeActivity(prompt, "heartbeat"),
-      onJianBeat: (prompt, cwd) => this._executeActivity(prompt, "heartbeat", `笺:${path.basename(cwd)}`, { cwd }),
+      onJianBeat: async (prompt, cwd) => {
+        const label = `笺:${path.basename(cwd)}`;
+        return this._executeActivity(prompt, "heartbeat", label, { cwd });
+      },
+      onNotify: (title, body) => {
+        this._hub.eventBus.emit({ type: "notification", title, body }, null);
+      },
+      onDeskChanged: (affectedDir) => {
+        this._hub.eventBus.emit({ type: "desk_changed", path: affectedDir || null }, null);
+      },
+      onJianExecuting: (active) => {
+        this._hub.eventBus.emit({ type: "jian_executing", active }, null);
+      },
       intervalMinutes: hbInterval,
       emitDevLog: (text, level) => engine.emitDevLog(text, level),
       locale: agent.config?.locale,
@@ -168,9 +180,14 @@ export class Scheduler {
         "",
         job.prompt,
       ].join("\n");
-      await this._executeActivityForAgent(agentId, prompt, "cron", job.label, {
+      const res = await this._executeActivityForAgent(agentId, prompt, "cron", job.label, {
         model: job.model || undefined,
       });
+      if (res.error) {
+        const err = new Error(res.error);
+        err.skipped = /跳过|skipped/i.test(res.error);
+        throw err;
+      }
     } finally {
       this._executingAgents.delete(agentId);
     }
@@ -186,14 +203,18 @@ export class Scheduler {
     const startedAt = Date.now();
     const id = `${type === "heartbeat" ? "hb" : "cron"}_${startedAt}`;
 
-    // 所有 agent 统一走 executeIsolated（支持 agentId 参数）
-    const result = await engine.executeIsolated(prompt, {
-      agentId,
-      persist: activityDir,
-      ...opts,
-    });
-    const { sessionPath, error } = result;
+    let result;
+    try {
+      result = await engine.executeIsolated(prompt, {
+        agentId,
+        persist: activityDir,
+        ...opts,
+      });
+    } catch (err) {
+      result = { sessionPath: null, replyText: "", error: err.message };
+    }
 
+    const { sessionPath, replyText, error } = result;
     const finishedAt = Date.now();
     const failed = !!error;
 
@@ -234,10 +255,11 @@ export class Scheduler {
     if (failed) {
       const reason = error || "后台任务未生成 session";
       engine.emitDevLog(`[${type}] ${label || "后台任务"} 失败: ${reason}`, "error");
-      throw new Error(reason);
+    } else {
+      engine.emitDevLog(`活动记录: ${entry.summary}`, "heartbeat");
     }
 
-    engine.emitDevLog(`活动记录: ${entry.summary}`, "heartbeat");
+    return { sessionPath, replyText: replyText || "", error: failed ? error : null };
   }
 
   /**

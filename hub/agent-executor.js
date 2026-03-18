@@ -10,7 +10,9 @@
 import fs from "fs";
 import path from "path";
 import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agent";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { debugLog } from "../lib/debug-log.js";
+import { wrapStreamFnForInvokeXml } from "../core/stream-invoke-normalizer.js";
 
 /**
  * 以指定 agentId 的身份跑一次临时会话。
@@ -58,7 +60,7 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
     tools = [];
     customTools = [];
   } else {
-    const built = ctx.buildTools(cwd, agent.tools, { agentDir });
+    const built = await ctx.buildTools(cwd, agent.tools, { agentDir });
     if (readOnly) {
       const READ_ONLY_BUILTIN = ["read", "grep", "find", "ls"];
       const READ_ONLY_CUSTOM = ["search_memory", "recall_experience", "web_search", "web_fetch"];
@@ -80,6 +82,7 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
     resourceLoader: tempResourceLoader,
     tools,
     customTools,
+    streamFn: wrapStreamFnForInvokeXml(streamSimple),
   });
 
   // 4. AbortSignal 连接
