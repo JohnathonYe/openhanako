@@ -281,19 +281,27 @@ export default async function chatRoute(app, { engine, hub }) {
         });
       }
 
-      if (event.toolName === "browser") {
-        const d = event.result?.details || {};
-        if (d.action === "screenshot" && event.result?.content) {
-          const imgBlock = event.result.content.find(c => c.type === "image");
-          if (imgBlock?.source?.data) {
-            emitStreamEvent(sessionPath, ss, {
-              type: "browser_screenshot",
-              base64: imgBlock.source.data,
-              mimeType: imgBlock.source.media_type || "image/jpeg",
-            });
-          }
+      // 截图推送给前端：优先从 details.screenshotBase64 取（工具只返文本给模型时），否则从 content 的 image 块取
+      const d = event.result?.details || {};
+      if (d.screenshotBase64) {
+        emitStreamEvent(sessionPath, ss, {
+          type: "browser_screenshot",
+          base64: d.screenshotBase64,
+          mimeType: d.mimeType || "image/png",
+        });
+      } else if (event.result?.content?.length) {
+        const imgBlock = event.result.content.find((c) => c.type === "image");
+        if (imgBlock?.source?.data) {
+          emitStreamEvent(sessionPath, ss, {
+            type: "browser_screenshot",
+            base64: imgBlock.source.data,
+            mimeType: imgBlock.source.media_type || "image/jpeg",
+          });
         }
+      }
 
+      if (event.toolName === "single_use_browser") {
+        const d = event.result?.details || {};
         const statusMsg = {
           type: "browser_status",
           running: d.running ?? false,
@@ -313,8 +321,12 @@ export default async function chatRoute(app, { engine, hub }) {
       }
 
       if (isActive && ["write", "edit", "bash"].includes(event.toolName)) {
-        broadcast({ type: "desk_changed" });
+        broadcast({ type: "desk_changed", path: null });
       }
+    } else if (event.type === "desk_changed") {
+      broadcast({ type: "desk_changed", path: event.path ?? null });
+    } else if (event.type === "jian_executing") {
+      broadcast({ type: "jian_executing", active: event.active === true });
     } else if (event.type === "jian_update") {
       broadcast({ type: "jian_update", content: event.content });
     } else if (event.type === "devlog") {

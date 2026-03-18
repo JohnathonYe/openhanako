@@ -100,6 +100,8 @@ dlog.header(appVersion, {
   channelsDir: engine.channelsDir,
 });
 
+console.log("[server] 工具调用日志 [tools] 输出到本终端与 ~/.hanako/logs（不会出现在浏览器 DevTools）");
+
 // ── 初始化 Hub（调度中枢，包装 engine） ──
 const hub = new Hub({ engine });
 

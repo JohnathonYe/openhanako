@@ -5,7 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import { t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
-import { isToolCallBlock, getToolArgs } from "../../core/llm-utils.js";
+import { isToolCallBlock, getToolArgs, normalizeToolCallContent } from "../../core/llm-utils.js";
 
 /**
  * 从 Pi SDK 的 content 块数组中提取纯文本 + thinking + tool_use 调用
@@ -25,26 +25,20 @@ function stripThinkTags(raw) {
 }
 
 function extractTextContent(content, { stripThink = false } = {}) {
-  if (typeof content === "string") {
-    if (stripThink) {
-      const { text, thinkContent } = stripThinkTags(content);
-      return { text, thinking: thinkContent, toolUses: [] };
-    }
-    return { text: content, thinking: "", toolUses: [] };
-  }
-  if (!Array.isArray(content)) return { text: "", thinking: "", toolUses: [] };
-  const rawText = content
+  const contentArr = normalizeToolCallContent(content);
+  if (!Array.isArray(contentArr)) return { text: "", thinking: "", toolUses: [] };
+  const rawText = contentArr
     .filter(block => block.type === "text" && block.text)
     .map(block => block.text)
     .join("");
   const { text, thinkContent } = stripThink ? stripThinkTags(rawText) : { text: rawText, thinkContent: "" };
   const thinking = [
     thinkContent,
-    ...content
+    ...contentArr
       .filter(block => block.type === "thinking" && block.thinking)
       .map(block => block.thinking),
   ].filter(Boolean).join("\n");
-  const toolUses = content
+  const toolUses = contentArr
     .filter(isToolCallBlock)
     .map(block => {
       const args = {};
@@ -76,7 +70,11 @@ async function loadSessionHistoryMessages(engine) {
         try {
           const entry = JSON.parse(line);
           if (entry.type === "message" && entry.message) {
-            messages.push(entry.message);
+            const msg = entry.message;
+            if (msg.role === "assistant" && msg.content) {
+              msg.content = normalizeToolCallContent(msg.content);
+            }
+            messages.push(msg);
           }
         } catch {
           // 跳过损坏行

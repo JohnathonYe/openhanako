@@ -3,9 +3,12 @@
  *
  * GET  /api/preferences/models  — 读取全局模型 + 搜索配置
  * PUT  /api/preferences/models  — 更新全局模型 + 搜索配置
+ * DELETE /api/preferences/tools/:id — 删除用户脚本工具（仅 user_script，并删除对应文件）
  */
 
+import fs from "fs";
 import { debugLog } from "../../lib/debug-log.js";
+import { getUserScriptToolFilePath } from "../../lib/tools/registry.js";
 
 export default async function preferencesRoute(app, { engine }) {
 
@@ -80,6 +83,66 @@ export default async function preferencesRoute(app, { engine }) {
       return { ok: true };
     } catch (err) {
       debugLog()?.error("api", `PUT /api/preferences/models failed: ${err.message}`);
+      reply.code(500);
+      return { error: err.message };
+    }
+  });
+
+  // ── 工具开关（全局 preferences.tools_disabled）──
+  app.get("/api/preferences/tools", async (req, reply) => {
+    try {
+      const tools = engine.getToolRegistry();
+      const disabled = engine.getToolsDisabled();
+      return { tools, disabled };
+    } catch (err) {
+      reply.code(500);
+      return { error: err.message };
+    }
+  });
+
+  app.put("/api/preferences/tools", async (req, reply) => {
+    try {
+      const body = req.body;
+      if (!body || typeof body !== "object") {
+        reply.code(400);
+        return { error: "invalid JSON body" };
+      }
+      const disabled = Array.isArray(body.disabled) ? body.disabled : [];
+      engine.setToolsDisabled(disabled);
+      return { ok: true };
+    } catch (err) {
+      reply.code(500);
+      return { error: err.message };
+    }
+  });
+
+  // 避免 GET /api/preferences/tools/:id 被误用时返回 404；明确返回 405
+  app.get("/api/preferences/tools/:id", async (req, reply) => {
+    reply.code(405);
+    reply.header("Allow", "DELETE");
+    return { error: "Method not allowed. Use DELETE to remove a user script tool." };
+  });
+
+  app.delete("/api/preferences/tools/:id", async (req, reply) => {
+    try {
+      const { id } = req.params;
+      if (!id || !id.startsWith("user_")) {
+        reply.code(400);
+        return { error: "Only user script tools can be deleted" };
+      }
+      const filePath = getUserScriptToolFilePath(engine.hanakoHome, id);
+      if (filePath) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          reply.code(500);
+          return { error: err.message };
+        }
+      }
+      const disabled = engine.getToolsDisabled().filter((x) => x !== id);
+      engine.setToolsDisabled(disabled);
+      return { ok: true };
+    } catch (err) {
       reply.code(500);
       return { error: err.message };
     }
