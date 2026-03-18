@@ -71,7 +71,7 @@ function makeCoordinator(tempDir, { agentConfig = {}, models = makeModels() } = 
     getModels: () => models,
     getResourceLoader: () => ({ getSystemPrompt: () => "prompt" }),
     getSkills: () => ({ getSkillsForAgent: () => [] }),
-    buildTools: () => ({ tools: [], customTools: [] }),
+    buildTools: async () => ({ tools: [], customTools: [] }),
     emitEvent: () => {},
     getHomeCwd: () => tempDir,
     agentIdFromSessionPath: () => null,
