@@ -10,21 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { execSync } from "child_process";
-
-/** 从 SKILL.md 内容中解析 description（支持 YAML 单行和多行） */
-function parseSkillDesc(content) {
-  const match = content.match(/^description:\s*(.*)$/m);
-  if (!match) return "";
-  const inline = match[1].trim().replace(/["']/g, "");
-  if (inline && inline !== "|" && inline !== ">") return inline;
-  const rest = content.slice(content.indexOf(match[0]) + match[0].length);
-  const parts = [];
-  for (const line of rest.split("\n")) {
-    if (line.match(/^\s+\S/)) parts.push(line.trim());
-    else if (parts.length > 0) break;
-  }
-  return parts.join(" ").replace(/["']/g, "");
-}
+import { parseSkillMetadata } from "../../lib/skills/skill-metadata.js";
 
 /** 解析真实路径（跟踪 symlink），失败返回 null */
 function realPath(p) {
@@ -309,10 +295,10 @@ export default async function deskRoute(app, { engine, hub }) {
           if (!fs.existsSync(skillFile)) continue;
           try {
             const content = fs.readFileSync(skillFile, "utf-8");
-            const nameMatch = content.match(/^name:\s*(.+?)\s*$/m);
+            const meta = parseSkillMetadata(content, entry.name);
             results.push({
-              name: nameMatch ? nameMatch[1].replace(/["']/g, "") : entry.name,
-              description: parseSkillDesc(content),
+              name: meta.name,
+              description: meta.description,
               source: label,
               dirPath: skillsDir,
               filePath: skillFile,
