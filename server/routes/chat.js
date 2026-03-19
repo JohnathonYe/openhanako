@@ -6,8 +6,8 @@
  */
 import { MoodParser, XingParser, ThinkTagParser } from "../../core/events.js";
 import { wsSend, wsParse } from "../ws-protocol.js";
-import { debugLog } from "../../lib/debug-log.js";
-import { t } from "../i18n.js";
+import { createModuleLogger, debugLog } from "../../lib/debug-log.js";
+import { getLocale, t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
 import {
   createSessionStreamState,
@@ -16,9 +16,65 @@ import {
   appendSessionStreamEvent,
   resumeSessionStream,
 } from "../session-stream-store.js";
+import {
+  MAX_AUDIO_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_MEDIA_ATTACHMENTS,
+  MAX_VIDEO_BYTES,
+} from "../../lib/media-limits.js";
+import {
+  looksLikeProviderRejectedMultimodal,
+  mediaKindsFromPayloadImages,
+} from "../../lib/media-reject-heuristic.js";
+import {
+  isSessionMediaKindRejected,
+  recordSessionMediaKindsRejected,
+} from "../../lib/session-media-reject-cache.js";
+import { filterImagesForModelInput } from "../../lib/model-media-capabilities.js";
 
 /** tool_start 事件只广播这些 arg 字段，避免传输完整文件内容（同步维护：chat-render-shim.ts extractToolDetail） */
 const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query"];
+
+const IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/svg+xml", "image/x-icon"]);
+const VIDEO_MIMES = new Set(["video/mp4", "video/webm", "video/quicktime"]);
+const AUDIO_MIMES = new Set([
+  "audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav", "audio/wave",
+  "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/aac", "audio/x-aac",
+  "audio/ogg", "audio/opus", "audio/flac", "audio/x-flac",
+]);
+
+/** 浏览器常带 codecs 等参数，如 video/mp4; codecs="avc1.42E01E" — 必须取主类型再白名单校验 */
+const MIME_ALIASES = {
+  "image/jpg": "image/jpeg",
+  "video/x-quicktime": "video/quicktime",
+};
+
+function normalizeMediaMime(mime) {
+  if (!mime || typeof mime !== "string") return "";
+  const base = mime.split(";")[0].trim().toLowerCase();
+  return MIME_ALIASES[base] || base;
+}
+
+const logWsPrompt = createModuleLogger("ws-prompt");
+
+function decodedBase64Bytes(data) {
+  if (!data || typeof data !== "string") return 0;
+  try {
+    return Buffer.from(data, "base64").length;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function formatMediaKindsForLocale(kinds, localeKey) {
+  const isEn = localeKey === "en";
+  const map = {
+    image: isEn ? "image" : "图片",
+    video: isEn ? "video" : "视频",
+    audio: isEn ? "audio" : "音频",
+  };
+  return kinds.map(k => map[k] || k).join(isEn ? ", " : "、");
+}
 
 /**
  * 从 Pi SDK 的 content 块中提取纯文本
@@ -82,6 +138,8 @@ export default async function chatRoute(app, { engine, hub }) {
         isThinking: false,
         titleRequested: false,
         titlePreview: "",
+        /** 最近一条带附件的 user prompt 的媒体大类，用于流式 error 时写入拒绝缓存 */
+        lastPromptMediaKinds: null,
         ...createSessionStreamState(),
       });
     }
@@ -228,7 +286,15 @@ export default async function chatRoute(app, { engine, hub }) {
       } else if (sub === "toolcall_start") {
         // 不在这里关闭 thinking 状态
       } else if (sub === "error") {
-        if (isActive) broadcast({ type: "error", message: event.assistantMessageEvent.error || "Unknown error" });
+        const errText = event.assistantMessageEvent.error || "Unknown error";
+        if (
+          looksLikeProviderRejectedMultimodal(errText) &&
+          ss?.lastPromptMediaKinds?.length &&
+          engine.currentModel?.id
+        ) {
+          recordSessionMediaKindsRejected(sessionPath, engine.currentModel.id, ss.lastPromptMediaKinds);
+        }
+        if (isActive) broadcast({ type: "error", message: errText });
       }
     } else if (event.type === "tool_execution_start") {
       if (!ss) return;
@@ -497,32 +563,74 @@ export default async function chatRoute(app, { engine, hub }) {
       }
 
       if (msg.type === "prompt" && (msg.text || msg.images?.length)) {
-        // 图片校验：最多 10 张，单张 ≤ 20MB，仅允许常见图片 MIME
+        // 媒体校验：最多 N 个，尺寸上限，白名单 MIME（规范化后校验）
         if (msg.images?.length) {
-          const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-          const MAX_IMAGES = 10;
-          const MAX_BYTES = 20 * 1024 * 1024; // 20MB base64 ≈ 15MB 原始
-          if (msg.images.length > MAX_IMAGES) {
-            wsSend(ws, { type: "error", message: `最多支持 ${MAX_IMAGES} 张图片` });
+          if (msg.images.length > MAX_MEDIA_ATTACHMENTS) {
+            logWsPrompt.warn(`reject: too many attachments (${msg.images.length} > ${MAX_MEDIA_ATTACHMENTS})`);
+            wsSend(ws, { type: "error", message: `最多同时发送 ${MAX_MEDIA_ATTACHMENTS} 个图片、视频或语音` });
             return;
           }
-          for (const img of msg.images) {
-            if (!img?.mimeType || !ALLOWED_MIME.has(img.mimeType)) {
-              wsSend(ws, { type: "error", message: `不支持的图片格式: ${img?.mimeType || "unknown"}` });
+          for (let i = 0; i < msg.images.length; i++) {
+            const img = msg.images[i];
+            const mimeRaw = img?.mimeType;
+            const mime = normalizeMediaMime(mimeRaw);
+            if (!mime || (!IMAGE_MIMES.has(mime) && !VIDEO_MIMES.has(mime) && !AUDIO_MIMES.has(mime))) {
+              logWsPrompt.warn(
+                `reject media #${i + 1}: rawMime=${JSON.stringify(mimeRaw)} norm=${mime || "(empty)"} bytes=${decodedBase64Bytes(img?.data)}`,
+              );
+              wsSend(ws, {
+                type: "error",
+                message: `不支持的媒体格式: ${mimeRaw || "unknown"}（规范化: ${mime || "—"}）`,
+              });
               return;
             }
-            if (img.data && img.data.length > MAX_BYTES) {
-              wsSend(ws, { type: "error", message: "单张图片不得超过 20MB" });
+            const rawBytes = decodedBase64Bytes(img.data);
+            if (IMAGE_MIMES.has(mime) && rawBytes > MAX_IMAGE_BYTES) {
+              logWsPrompt.warn(`reject image #${i + 1}: ${rawBytes}B > ${MAX_IMAGE_BYTES}`);
+              wsSend(ws, { type: "error", message: "单张图片不得超过 10MB" });
               return;
             }
+            if (VIDEO_MIMES.has(mime) && rawBytes > MAX_VIDEO_BYTES) {
+              logWsPrompt.warn(`reject video #${i + 1}: ${rawBytes}B > ${MAX_VIDEO_BYTES}`);
+              wsSend(ws, { type: "error", message: "单个视频不得超过 20MB" });
+              return;
+            }
+            if (AUDIO_MIMES.has(mime) && rawBytes > MAX_AUDIO_BYTES) {
+              logWsPrompt.warn(`reject audio #${i + 1}: ${rawBytes}B > ${MAX_AUDIO_BYTES}`);
+              wsSend(ws, { type: "error", message: "单条语音不得超过 20MB" });
+              return;
+            }
+            // 下游 Pi / API 使用规范化 mime
+            msg.images[i] = { ...img, mimeType: mime };
           }
+          logWsPrompt.log(
+            `accept ${msg.images.length} media: ${msg.images.map((im, j) => `#${j + 1} ${im.mimeType} ${decodedBase64Bytes(im.data)}B`).join(" | ")}`,
+          );
         }
-        // 只发图片没文字时补一个占位文本，防止空 text 导致某些 API 异常
+        const hadImagesAfterMimeCheck = !!(msg.images?.length);
+        if (hadImagesAfterMimeCheck) {
+          const filtered = filterImagesForModelInput(msg.images, engine.currentModel?.input);
+          if (filtered?.length !== msg.images.length) {
+            logWsPrompt.log(
+              `model.input filter: ${msg.images.length} → ${filtered?.length ?? 0} (model.input=${JSON.stringify(engine.currentModel?.input)})`,
+            );
+          }
+          msg.images = filtered;
+        }
+        // 只发媒体没文字时补占位文本，防止空 text 导致某些 API 异常
         let promptText = msg.text || "";
-        if (!promptText.trim() && msg.images?.length) {
-          promptText = "（看图）";
+        if (!promptText.trim() && hadImagesAfterMimeCheck && !msg.images?.length) {
+          promptText = t("error.mediaOmittedForModel");
         }
-        debugLog()?.log("ws", `user message (${promptText.length} chars, ${msg.images?.length || 0} images)`);
+        if (!promptText.trim() && msg.images?.length) {
+          const hasVideo = msg.images.some((i) => i?.mimeType && VIDEO_MIMES.has(i.mimeType));
+          const hasAudio = msg.images.some((i) => i?.mimeType && AUDIO_MIMES.has(i.mimeType));
+          if (hasVideo && hasAudio) promptText = "（看视频/图/听语音）";
+          else if (hasVideo) promptText = "（看视频/图）";
+          else if (hasAudio) promptText = "（听语音）";
+          else promptText = "（看图）";
+        }
+        debugLog()?.log("ws", `user message (${promptText.length} chars, ${msg.images?.length || 0} media)`);
         // 只检查当前活跃 session 是否在 streaming
         if (engine.isStreaming) {
           wsSend(ws, { type: "error", message: t("error.stillStreaming", { name: engine.agentName }) });
@@ -530,6 +638,23 @@ export default async function chatRoute(app, { engine, hub }) {
         }
         const promptSessionPath = engine.currentSessionPath;
         const ss = getState(promptSessionPath);
+        const modelId = engine.currentModel?.id;
+        const promptKinds = msg.images?.length ? mediaKindsFromPayloadImages(msg.images) : [];
+        if (ss && promptKinds.length && modelId) {
+          const blocked = promptKinds.filter((k) =>
+            isSessionMediaKindRejected(promptSessionPath, modelId, k),
+          );
+          if (blocked.length) {
+            wsSend(ws, {
+              type: "error",
+              message: t("error.sessionMediaKindCached", {
+                kinds: formatMediaKindsForLocale(blocked, getLocale()),
+              }),
+            });
+            return;
+          }
+        }
+        if (ss) ss.lastPromptMediaKinds = promptKinds.length ? promptKinds : null;
         try {
           ss.thinkTagParser.reset();
           ss.moodParser.reset();
@@ -544,6 +669,18 @@ export default async function chatRoute(app, { engine, hub }) {
             broadcast({ type: "status", isStreaming: false });
           }
         } catch (err) {
+          if (
+            msg.images?.length &&
+            modelId &&
+            looksLikeProviderRejectedMultimodal(err.message) &&
+            promptSessionPath
+          ) {
+            recordSessionMediaKindsRejected(
+              promptSessionPath,
+              modelId,
+              mediaKindsFromPayloadImages(msg.images),
+            );
+          }
           if (!err.message?.includes("aborted")) {
             wsSend(ws, { type: "error", message: err.message });
           }

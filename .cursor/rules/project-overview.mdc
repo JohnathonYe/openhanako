@@ -33,6 +33,10 @@ alwaysApply: true
 - `npm run typecheck` — TypeScript 检查（仅覆盖 desktop/src）
 - `npm test` — Vitest 运行
 
+## 调试环境变量
+
+- `HANA_DEBUG_LLM_PAYLOAD=1` — 在终端摘要打印发往 LLM 的 **openai-completions** 请求 `messages` 结构（`image_url` 仅显示 mime 与 base64 长度）。与 `npm start` 同用。
+
 ## 约定
 
 - 后端（core/lib/server）使用 **ESM**（`import`/`export`），文件扩展名 `.js`

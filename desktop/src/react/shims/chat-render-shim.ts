@@ -88,11 +88,135 @@ function ensureGroup(role: string): HTMLElement {
   return group;
 }
 
+// ── 用户附件：本地路径在 http 页面下 file:// 常被拦截，优先 IPC 读 base64 再赋给 img/video ──
+
+const VIDEO_EXT_MIME: Record<string, string> = {
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+};
+const AUDIO_EXT_MIME: Record<string, string> = {
+  mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac',
+  ogg: 'audio/ogg', opus: 'audio/opus', flac: 'audio/flac',
+};
+const IMAGE_EXT_MIME: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', ico: 'image/x-icon',
+};
+
+type HydrateMediaKind = 'image' | 'video' | 'audio';
+
+function guessMediaMimeFromName(fileName: string, kind: HydrateMediaKind): string {
+  const ext = (fileName.split('.').pop() || '').toLowerCase();
+  if (kind === 'video') return VIDEO_EXT_MIME[ext] || 'video/mp4';
+  if (kind === 'audio') return AUDIO_EXT_MIME[ext] || 'audio/mpeg';
+  return IMAGE_EXT_MIME[ext] || 'image/jpeg';
+}
+
+/** 视频/音频用 Blob URL：Chromium 对 data: 媒体常解析不全；需 CSP media-src 含 blob:/data: */
+function base64ToBlobUrl(b64: string, mime: string): string {
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime || 'application/octet-stream' });
+  return URL.createObjectURL(blob);
+}
+
+function revokeBlobMediaUrl(media: HTMLMediaElement): void {
+  const prev = media.dataset.hanaBlobUrl;
+  if (prev) {
+    try { URL.revokeObjectURL(prev); } catch { /* ignore */ }
+    delete media.dataset.hanaBlobUrl;
+  }
+}
+
+/** base64 → Blob URL（优先），失败再 data URL；适用于 video / audio */
+function setBlobSourceFromBase64(media: HTMLMediaElement, b64: string, mime: string, defaultMime: string): void {
+  revokeBlobMediaUrl(media);
+  const mt = mime || defaultMime;
+  try {
+    const url = base64ToBlobUrl(b64, mt);
+    media.dataset.hanaBlobUrl = url;
+    media.src = url;
+  } catch {
+    media.src = `data:${mt};base64,${b64}`;
+  }
+  media.load();
+}
+
+function setBlobSourceFromFileUrl(media: HTMLMediaElement, fileUrl: string): void {
+  revokeBlobMediaUrl(media);
+  media.src = fileUrl;
+  media.load();
+}
+
+/** 无内联 base64 时：异步读盘；视频/音频优先 Blob URL + load()，失败再 file://。读失败或媒体解码失败则移除 attach 卡片（如本地已删文件） */
+function hydrateMediaFromPath(
+  el: HTMLImageElement | HTMLVideoElement | HTMLAudioElement,
+  filePath: string,
+  fileName: string,
+  kind: HydrateMediaKind,
+  attachCard?: HTMLElement | null,
+): void {
+  const read = (window as any).platform?.readFileBase64 ?? (window as any).hana?.readFileBase64;
+  const mime = guessMediaMimeFromName(fileName, kind);
+  const removeCard = () => {
+    try {
+      attachCard?.remove();
+    } catch { /* ignore */ }
+  };
+
+  if (!filePath) {
+    removeCard();
+    return;
+  }
+
+  el.addEventListener('error', () => removeCard(), { once: true });
+
+  void (async () => {
+    const fileUrl = (window as any).hana?.pathToFileURL?.(filePath)
+      || (window as any).platform?.pathToFileURL?.(filePath);
+
+    if (read) {
+      try {
+        const b64 = await read(filePath);
+        if (b64) {
+          if (kind === 'video' && el instanceof HTMLVideoElement) {
+            setBlobSourceFromBase64(el, b64, mime, 'video/mp4');
+          } else if (kind === 'audio' && el instanceof HTMLAudioElement) {
+            setBlobSourceFromBase64(el, b64, mime, 'audio/mpeg');
+          } else if (kind === 'image' && el instanceof HTMLImageElement) {
+            el.src = `data:${mime};base64,${b64}`;
+          }
+          return;
+        }
+      } catch { /* fall through */ }
+    }
+    if (kind === 'video' && el instanceof HTMLVideoElement && fileUrl) {
+      setBlobSourceFromFileUrl(el, fileUrl);
+      return;
+    }
+    if (kind === 'audio' && el instanceof HTMLAudioElement && fileUrl) {
+      setBlobSourceFromFileUrl(el, fileUrl);
+      return;
+    }
+    if (fileUrl && kind === 'image' && el instanceof HTMLImageElement) {
+      el.src = fileUrl;
+      return;
+    }
+    removeCard();
+  })();
+}
+
 // ── 用户消息 ──
 
 function addUserMessage(text: string, files?: Array<{ isDirectory?: boolean; name: string; path: string; base64Data?: string; mimeType?: string }> | null, deskContext?: { dir: string; fileCount: number } | null): void {
   const icons = (window.HanaModules as Record<string, unknown>).icons as { SVG_ICONS: Record<string, string> };
-  const utils = (window.HanaModules as Record<string, unknown>).utils as { escapeHtml: (s: string) => string; isImageFile: (n: string) => boolean };
+  const utils = (window.HanaModules as Record<string, unknown>).utils as {
+    escapeHtml: (s: string) => string;
+    isImageFile: (n: string) => boolean;
+    isVideoFile: (n: string) => boolean;
+    isAudioFile?: (n: string) => boolean;
+  };
   const t = (window as any).t as ((key: string, vars?: Record<string, unknown>) => string) | undefined;
 
   useStore.getState().setWelcomeVisible(false);
@@ -122,15 +246,66 @@ function addUserMessage(text: string, files?: Array<{ isDirectory?: boolean; nam
     }
 
     for (const f of (files || [])) {
-      if (!f.isDirectory && utils.isImageFile(f.name)) {
+      if (!f.isDirectory && utils.isVideoFile?.(f.name)) {
+        const card = document.createElement('div');
+        card.className = 'attach-card attach-video';
+        const video = document.createElement('video');
+        video.className = 'attach-video-el';
+        video.controls = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
+        video.preload = 'auto';
+        video.setAttribute('aria-label', f.name);
+        if (f.base64Data && f.mimeType) {
+          setBlobSourceFromBase64(video, f.base64Data, f.mimeType, 'video/mp4');
+        } else {
+          hydrateMediaFromPath(video, f.path, f.name, 'video', card);
+        }
+        card.appendChild(video);
+        const cap = document.createElement('div');
+        cap.className = 'attach-video-caption';
+        cap.textContent = f.name;
+        card.appendChild(cap);
+        card.addEventListener('click', (ev) => {
+          if ((ev.target as HTMLElement).closest('video')) return;
+          (window as any).platform?.openFile?.(f.path);
+        });
+        grid.appendChild(card);
+      } else if (!f.isDirectory && utils.isAudioFile?.(f.name)) {
+        const card = document.createElement('div');
+        card.className = 'attach-card attach-audio';
+        const audio = document.createElement('audio');
+        audio.className = 'attach-audio-el';
+        audio.controls = true;
+        audio.preload = 'metadata';
+        audio.setAttribute('aria-label', f.name);
+        if (f.base64Data && f.mimeType) {
+          setBlobSourceFromBase64(audio, f.base64Data, f.mimeType, 'audio/mpeg');
+        } else {
+          hydrateMediaFromPath(audio, f.path, f.name, 'audio', card);
+        }
+        card.appendChild(audio);
+        const cap = document.createElement('div');
+        cap.className = 'attach-audio-caption';
+        cap.textContent = f.name;
+        card.appendChild(cap);
+        card.addEventListener('click', (ev) => {
+          if ((ev.target as HTMLElement).closest('audio')) return;
+          (window as any).platform?.openFile?.(f.path);
+        });
+        grid.appendChild(card);
+      } else if (!f.isDirectory && utils.isImageFile(f.name)) {
         const card = document.createElement('div');
         card.className = 'attach-card attach-image';
         const img = document.createElement('img');
-        img.src = f.base64Data
-          ? `data:${f.mimeType || 'image/png'};base64,${f.base64Data}`
-          : `file://${f.path}`;
         img.alt = f.name;
         img.loading = 'lazy';
+        if (f.base64Data) {
+          img.src = `data:${f.mimeType || 'image/png'};base64,${f.base64Data}`;
+        } else {
+          hydrateMediaFromPath(img, f.path, f.name, 'image', card);
+        }
         card.appendChild(img);
         // 点击预览图片
         card.addEventListener('click', () => {

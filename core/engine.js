@@ -115,6 +115,7 @@ export class HanaEngine {
       getAgentById: (id) => this._agentMgr.getAgent(id),
       listAgents: () => this.listAgents(),
       syncPlanModeToSession: () => this.setPlanMode(this.planMode),
+      flushBridgeOwnerMemory: () => this.flushBridgeOwnerMemory(),
     });
 
     // ── Config Coordinator ──
@@ -207,6 +208,11 @@ export class HanaEngine {
   async createSession(mgr, cwd, mem) { return this._sessionCoord.createSession(mgr, cwd, mem); }
   async switchSession(p) { return this._sessionCoord.switchSession(p); }
   async prompt(text, opts) { return this._sessionCoord.prompt(text, opts); }
+
+  /** 当前助手：收尾所有 Bridge 本人会话记忆（切换/关会话时由 SessionCoordinator 调用） */
+  async flushBridgeOwnerMemory() {
+    return this.agent?.flushBridgeOwnerMemory?.();
+  }
   async abort() { return this._sessionCoord.abort(); }
   steer(text) { return this._sessionCoord.steer(text); }
   isBridgeSessionStreaming(key) { return this._bridge?.isSessionStreaming(key) ?? false; }
@@ -432,6 +438,9 @@ export class HanaEngine {
     // 8. 沙盒日志
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     log(`✿ 沙盒${sandboxEnabled ? "已启用" : "已关闭"}`);
+
+    // 9. 「操作电脑」每期进程启动默认关闭（若已有 session 则同步工具列表并广播）
+    this.setPlanMode(false);
 
     const totalTime = ((Date.now() - startupTimer) / 1000).toFixed(1);
     log(`✿ 初始化完成（${totalTime}s）`);

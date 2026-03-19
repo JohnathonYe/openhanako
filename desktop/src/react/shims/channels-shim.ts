@@ -45,12 +45,99 @@ let _mentionStartPos = -1;
 let _mentionSelectedIdx = 0;
 let _channelCreateMembers: string[] = [];
 let _creatingChannel = false;
+let _channelDocClickBound = false;
 
 // ── 快捷访问 ──
 
 function state(): Record<string, any> { return ctx.state; }
 function hanaFetch(path: string, opts?: RequestInit): Promise<Response> { return ctx.hanaFetch(path, opts); }
 function hanaUrl(path: string): string { return ctx.hanaUrl(path); }
+
+/** 去掉文档文件顶部的 YAML frontmatter，便于在查看器里只渲染正文 */
+function stripChannelDocFrontmatter(md: string): string {
+  const s = String(md || '');
+  if (!s.startsWith('---\n')) return s;
+  const end = s.indexOf('\n---\n', 4);
+  if (end === -1) return s;
+  return s.slice(end + 5).trim();
+}
+
+function openChannelDocViewer(channelId: string, docId: string): void {
+  const t = (window as any).t as (k: string) => string;
+  const overlay = document.createElement('div');
+  overlay.className = 'channel-doc-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+
+  const panel = document.createElement('div');
+  panel.className = 'channel-doc-panel';
+
+  const head = document.createElement('div');
+  head.className = 'channel-doc-header';
+
+  const title = document.createElement('h2');
+  title.className = 'channel-doc-title';
+  title.textContent = t('channel.docTitle');
+
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'channel-doc-close';
+  closeBtn.textContent = t('channel.docClose');
+  head.appendChild(title);
+  head.appendChild(closeBtn);
+
+  const body = document.createElement('div');
+  body.className = 'channel-doc-body md-content';
+  body.innerHTML = `<p class="channel-doc-loading">…</p>`;
+
+  panel.appendChild(head);
+  panel.appendChild(body);
+  overlay.appendChild(panel);
+
+  const closeOverlay = (): void => {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') closeOverlay();
+  };
+  document.addEventListener('keydown', onKey);
+  closeBtn.addEventListener('click', closeOverlay);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeOverlay();
+  });
+
+  document.body.appendChild(overlay);
+
+  const path = `/api/channels/${encodeURIComponent(channelId)}/docs/${encodeURIComponent(docId)}`;
+  hanaFetch(path)
+    .then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const raw = String(data.content || '');
+      const inner = stripChannelDocFrontmatter(raw);
+      body.innerHTML = ctx.md.render(inner);
+    })
+    .catch(() => {
+      body.innerHTML = `<p class="channel-doc-error">${t('channel.docLoadError')}</p>`;
+    });
+}
+
+function handleChannelMessagesClick(e: MouseEvent): void {
+  const el = e.target as HTMLElement | null;
+  if (!el) return;
+  const a = el.closest('a[data-hana-channel-doc]') as HTMLAnchorElement | null;
+  if (!a) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const raw = a.getAttribute('data-hana-channel-doc') || '';
+  const slash = raw.indexOf('/');
+  if (slash < 0) return;
+  const channelId = decodeURIComponent(raw.slice(0, slash));
+  const docId = decodeURIComponent(raw.slice(slash + 1));
+  if (!channelId || !docId) return;
+  openChannelDocViewer(channelId, docId);
+}
 
 // ══════════════════════════════════════════════════════
 // Warning 弹窗
@@ -676,7 +763,7 @@ async function sendChannelMessage(): Promise<void> {
       s.channelMessages.push({
         sender: s.userName || 'user',
         timestamp: data.timestamp,
-        body: text,
+        body: typeof data.body === 'string' ? data.body : text,
       });
       renderChannelMessages();
     }
@@ -1022,6 +1109,10 @@ function initChannels(context: Record<string, any>): void {
   channelTabBadge = $('#channelTabBadge');
   channelListEl = $('#channelList');
   channelMessagesEl = $('#channelMessages');
+  if (channelMessagesEl && !_channelDocClickBound) {
+    _channelDocClickBound = true;
+    channelMessagesEl.addEventListener('click', handleChannelMessagesClick);
+  }
   channelInputArea = $('#channelInputArea');
   channelInputBox = $('#channelInputBox') as HTMLTextAreaElement | null;
   channelSendBtn = $('#channelSendBtn') as HTMLButtonElement | null;

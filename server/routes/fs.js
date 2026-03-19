@@ -9,6 +9,8 @@
 
 import fs from "fs";
 import path from "path";
+import { MAX_AUDIO_BYTES, MAX_VIDEO_BYTES, isAudioFilename, isVideoFilename } from "../../lib/media-limits.js";
+import { t } from "../i18n.js";
 
 /** 安全路径校验：resolved 必须在 allowedRoots 之一内部 */
 function isSafePath(filePath, allowedRoots) {
@@ -53,6 +55,17 @@ export default async function fsRoute(app, { engine }) {
       return reply.code(403).send({ error: "path not allowed" });
     }
     try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile()) {
+        return reply.code(404).send({ error: "file not found" });
+      }
+      const base = path.basename(filePath);
+      if (isVideoFilename(base) && stat.size > MAX_VIDEO_BYTES) {
+        return reply.code(413).send({ error: t("error.videoTooLarge") });
+      }
+      if (isAudioFilename(base) && stat.size > MAX_AUDIO_BYTES) {
+        return reply.code(413).send({ error: t("error.audioTooLarge") });
+      }
       const buf = fs.readFileSync(filePath);
       reply.type("text/plain").send(buf.toString("base64"));
     } catch {

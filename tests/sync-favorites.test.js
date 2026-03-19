@@ -106,6 +106,32 @@ describe("syncFavoritesToModelsJson", () => {
     expect(result).toEqual({ providers: {} });
   });
 
+  it("新建模型默认 input 含 text/image/audio/video", () => {
+    fs.writeFileSync(
+      configPath,
+      [
+        "models:",
+        "  favorites:",
+        "    - anthropic/claude-3.5-sonnet",
+        "providers:",
+        "  openrouter:",
+        '    base_url: "https://openrouter.ai/api/v1"',
+        '    api_key: "sk-test"',
+        '    api: "openai-completions"',
+        "    models:",
+        "      - anthropic/claude-3.5-sonnet",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    const modelsPath = path.join(tmpRoot, "or-models.json");
+    const changed = syncFavoritesToModelsJson(configPath, { modelsJsonPath: modelsPath });
+    const result = JSON.parse(fs.readFileSync(modelsPath, "utf-8"));
+    expect(changed).toBe(true);
+    const inp = result.providers.openrouter.models[0].input;
+    expect(inp).toEqual(["text", "image", "audio", "video"]);
+  });
+
   it("同步时会保留已有模型展示名并保持原始 id", () => {
     const modelsPath = path.join(tmpRoot, "custom-models.json");
     fs.writeFileSync(modelsPath, JSON.stringify({

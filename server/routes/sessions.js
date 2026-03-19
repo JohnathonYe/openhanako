@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import { t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
+import { clearSessionMediaRejectCache } from "../../lib/session-media-reject-cache.js";
 import { isToolCallBlock, getToolArgs, normalizeToolCallContent } from "../../core/llm-utils.js";
 
 /**
@@ -22,6 +23,115 @@ function stripThinkTags(raw) {
     return "";
   });
   return { text, thinkContent: thinkParts.join("\n") };
+}
+
+/** 与桌面 InputArea 一致：会话里不应再展示为路径附件的假路径 */
+function isEphemeralAttachmentPath(p) {
+  if (!p || typeof p !== "string") return false;
+  const base = p.replace(/\\/g, "/").split("/").pop() || p;
+  return base.startsWith("picked-") || base.startsWith("clipboard-");
+}
+
+const MIME_TO_EXT = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/x-m4a": "m4a",
+  "audio/ogg": "ogg",
+  "audio/opus": "opus",
+  "audio/flac": "flac",
+  "audio/aac": "aac",
+};
+
+function extFromMime(mimeRaw) {
+  const mime = (mimeRaw || "").split(";")[0].trim().toLowerCase();
+  if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
+  // 扩展名需与桌面 utils isImageFile / isVideoFile / isAudioFile 一致，否则历史里会落成回形针卡片
+  if (mime.startsWith("image/")) return "png";
+  if (mime.startsWith("video/")) return "mp4";
+  if (mime.startsWith("audio/")) return "m4a";
+  return "bin";
+}
+
+/**
+ * 从用户 content 块取出内联 base64（桌面多模态统一用 type:image + mime；亦兼容 type:video / audio）
+ */
+function getUserInlineMediaFromBlock(block) {
+  if (!block || typeof block !== "object") return null;
+  const kind = block.type;
+  if (kind !== "image" && kind !== "video" && kind !== "audio") return null;
+
+  const data =
+    (typeof block.data === "string" && block.data.length > 0 && block.data)
+    || (typeof block.source?.data === "string" && block.source.data.length > 0 && block.source.data)
+    || null;
+  if (!data) return null;
+
+  let mime = typeof block.mimeType === "string"
+    ? block.mimeType.split(";")[0].trim().toLowerCase()
+    : "";
+  if (!mime) {
+    if (kind === "video") mime = "video/mp4";
+    else if (kind === "audio") mime = "audio/mpeg";
+    else mime = "image/jpeg";
+  }
+  return { data, mime };
+}
+
+/**
+ * 用户消息：文本块 + Pi 持久化的内联图/视频/语音
+ * 供历史列表回显；仅 extractTextContent 会丢掉媒体块导致切换会话后只剩假路径附件行。
+ */
+function extractUserMessageForHistory(content) {
+  const contentArr = normalizeToolCallContent(content);
+  if (!Array.isArray(contentArr)) {
+    const t = typeof content === "string" ? content : "";
+    return { text: stripEphemeralAttachmentLinesFromUserText(t), inlineMedia: [] };
+  }
+  let text = "";
+  const inlineMedia = [];
+  let n = 0;
+  for (const block of contentArr) {
+    if (block.type === "text" && typeof block.text === "string") {
+      text += block.text;
+      continue;
+    }
+    const payload = getUserInlineMediaFromBlock(block);
+    if (!payload) continue;
+    const ext = extFromMime(payload.mime);
+    const idx = n;
+    n += 1;
+    inlineMedia.push({
+      name: `media-${idx}.${ext}`,
+      path: `hana-inline:${idx}:${ext}`,
+      base64Data: payload.data,
+      mimeType: payload.mime,
+    });
+  }
+  const cleaned = stripEphemeralAttachmentLinesFromUserText(text);
+  return { text: cleaned, inlineMedia };
+}
+
+/** 去掉写进会话、但无法在磁盘解析的假路径行（否则前端会落成「回形针」卡片） */
+function stripEphemeralAttachmentLinesFromUserText(raw) {
+  if (!raw || typeof raw !== "string") return raw || "";
+  const lines = raw.split("\n");
+  const kept = lines.filter((line) => {
+    const m = line.match(/^\[附件\]\s+(.+)$/);
+    if (!m) return true;
+    return !isEphemeralAttachmentPath(m[1].trim());
+  });
+  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "");
 }
 
 function extractTextContent(content, { stripThink = false } = {}) {
@@ -134,8 +244,14 @@ export default async function sessionsRoute(app, { engine }) {
 
       for (const m of sourceMessages) {
         if (m.role === "user") {
-          const { text } = extractTextContent(m.content);
-          if (text) messages.push({ role: "user", content: text });
+          const { text, inlineMedia } = extractUserMessageForHistory(m.content);
+          if ((text && String(text).trim()) || inlineMedia.length > 0) {
+            messages.push({
+              role: "user",
+              content: text || "",
+              ...(inlineMedia.length > 0 ? { inlineMedia } : {}),
+            });
+          }
         } else if (m.role === "assistant") {
           const { text, thinking, toolUses } = extractTextContent(m.content, { stripThink: true });
           if (text || toolUses.length) {
@@ -339,6 +455,9 @@ export default async function sessionsRoute(app, { engine }) {
 
       // 先从 engine 的 session map 中移除（如果正在后台跑会被 abort）
       await engine.closeSession(sessionPath);
+
+      // 释放本会话的「媒体被拒」学习缓存（键为归档前路径）
+      clearSessionMediaRejectCache(sessionPath);
 
       // 从 session 路径推导归档目录（同 agent 的 sessions/archived/）
       const sessDir = path.dirname(sessionPath);

@@ -198,6 +198,11 @@ export class AgentManager {
     if (userName) {
       config = config.replace(/user:\s*\n\s+name:\s*""/, `user:\n  name: "${userName}"`);
     }
+    // 新助手默认继承当前全局默认对话模型，避免 models.chat 为空时心跳/巡检 executeIsolated 失败
+    const defaultChatId = this._d.getModels()?.defaultModel?.id;
+    if (defaultChatId) {
+      config = config.replace(/^(\s+chat:\s*)""/m, `$1"${defaultChatId}"`);
+    }
     fs.writeFileSync(path.join(agentDir, "config.yaml"), config, "utf-8");
 
     // identity.md
@@ -275,6 +280,8 @@ export class AgentManager {
       // 未配 models.chat 的 agent 继承当前 defaultModel
       const effectiveModel = preferredId || models.defaultModel?.id || "inherited";
       log.log(`agent switched to ${this.agent.agentName} (${agentId}), model=${effectiveModel}`);
+      // 与 pauseForAgentSwitch 成对：切换 session / createSessionForAgent 只走 switchAgentOnly 时也必须恢复心跳
+      hub?.resumeAfterAgentSwitch();
     } catch (err) {
       this._activeAgentId = prevAgentId;
       try { this._d.getHub()?.resumeAfterAgentSwitch(); } catch {}
@@ -286,8 +293,6 @@ export class AgentManager {
 
   async switchAgent(agentId) {
     await this.switchAgentOnly(agentId);
-    const hub = this._d.getHub();
-    hub?.resumeAfterAgentSwitch();
     this._d.getSkills().syncAgentSkills(this.agent);
     this._d.getPrefs().savePrimaryAgent(agentId);
     await this._d.getSessionCoordinator().createSession();

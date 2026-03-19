@@ -28,6 +28,11 @@ export interface Model {
   id: string;
   name: string;
   isCurrent?: boolean;
+  provider?: string;
+  /** API 端点（用于识别 OpenRouter / SiliconFlow 等聚合商） */
+  baseUrl?: string;
+  /** 与 Pi model.input 一致：text / image / video / audio */
+  input?: string[];
   reasoning?: boolean;
   xhigh?: boolean;
 }
@@ -109,6 +114,8 @@ export interface PlatformApi {
   unwatchFile(filePath: string): Promise<boolean>;
   onFileChanged(callback: (filePath: string) => void): void;
   readFileBase64(path: string): Promise<string | null>;
+  /** 绝对路径 → file:// URL（同步） */
+  pathToFileURL?(path: string): string;
   readDocxHtml(path: string): Promise<string | null>;
   readXlsxHtml(path: string): Promise<string | null>;
   openEditorWindow(data: { filePath: string; title: string; type: string; language?: string | null }): void;

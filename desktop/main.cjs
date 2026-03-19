@@ -1804,12 +1804,13 @@ ipcMain.handle("unwatch-file", (_event, filePath) => {
 });
 
 // 读取二进制文件为 base64（图片、PDF 等）
+// 单文件 20MB：与 lib/media-limits.js 中 MAX_VIDEO_BYTES 一致（视频预览/多模态上限）
 ipcMain.handle("read-file-base64", (_event, filePath) => {
   if (!filePath || !path.isAbsolute(filePath)) return null;
   try {
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) return null;
-    if (stat.size > 20 * 1024 * 1024) return null; // 20MB 限制
+    if (stat.size > 20 * 1024 * 1024) return null;
     return fs.readFileSync(filePath).toString("base64");
   } catch { return null; }
 });

@@ -16,6 +16,7 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
 import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
+import { filterImagesForModelInput } from "../lib/model-media-capabilities.js";
 
 const log = createModuleLogger("session");
 
@@ -50,6 +51,7 @@ export class SessionCoordinator {
    * @param {(agentId) => object} deps.getActivityStore
    * @param {(agentId) => object|null} deps.getAgentById
    * @param {() => object} deps.listAgents - 列出所有 agent
+   * @param {() => Promise<void>} [deps.flushBridgeOwnerMemory] - 收尾 Bridge 本人会话记忆
    */
   constructor(deps) {
     this._d = deps;
@@ -183,8 +185,21 @@ export class SessionCoordinator {
   async prompt(text, opts) {
     if (!this._session) throw new Error("没有活跃的 session，请先调用 createSession()");
     this._sessionStarted = true;
-    const promptOpts = opts?.images?.length ? { images: opts.images } : undefined;
-    await this._session.prompt(text, promptOpts);
+    const sessionModel = this._session.model;
+    const origImages = opts?.images;
+    let images = filterImagesForModelInput(origImages, sessionModel?.input);
+    let effectiveText = text;
+    if ((!effectiveText || !String(effectiveText).trim()) && origImages?.length && !images?.length) {
+      effectiveText = "（所附媒体已省略：当前模型不支持。）";
+    }
+    const promptOpts = images?.length ? { images } : undefined;
+    if (promptOpts?.images?.length) {
+      const mimes = promptOpts.images.map((im) => im.mimeType).join(", ");
+      log.log(
+        `prompt → model: ${promptOpts.images.length} media [${mimes}], textLen=${(effectiveText || "").length}, model.input=${JSON.stringify(sessionModel?.input)}`,
+      );
+    }
+    await this._session.prompt(effectiveText, promptOpts);
     const sp = this._session.sessionManager?.getSessionFile?.();
     if (sp) this._d.getAgent()?._memoryTicker?.notifyTurn(sp);
   }
@@ -218,9 +233,15 @@ export class SessionCoordinator {
   }
 
   async closeAllSessions() {
+    const agent = this._d.getAgent();
     if (this._session) {
       const curSp = this._session.sessionManager?.getSessionFile?.();
-      if (curSp) this._d.getAgent()?._memoryTicker?.notifySessionEnd(curSp);
+      if (curSp && agent?.memoryTicker?.notifySessionEnd) {
+        await agent.memoryTicker.notifySessionEnd(curSp).catch(() => {});
+      }
+    }
+    if (this._d.flushBridgeOwnerMemory) {
+      await this._d.flushBridgeOwnerMemory().catch(() => {});
     }
     for (const [, entry] of this._sessions) {
       if (entry.session.isStreaming) {
@@ -408,19 +429,34 @@ export class SessionCoordinator {
 
       const execCwd = opts.cwd || this._d.getHomeCwd() || process.cwd();
       const models = this._d.getModels();
-      const agentPreferredModel = targetAgent.config?.models?.chat;
-      const modelId = opts.model ? null : agentPreferredModel;
       let resolvedModel = opts.model;
       if (!resolvedModel) {
-        if (!modelId) {
-          log.error(`[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat`);
-          throw new Error(`executeIsolated: agent "${targetAgent.agentName}" 未指定 models.chat`);
-        }
-        resolvedModel = models.availableModels.find(m => m.id === modelId);
-        if (!resolvedModel) {
-          const available = models.availableModels.map(m => `${m.provider}/${m.id}`).join(", ");
-          log.error(`[executeIsolated] 找不到模型 "${modelId}"。availableModels=[${available}]`);
-          throw new Error(`executeIsolated: 模型 "${modelId}" 不在可用列表中`);
+        const preferredId = targetAgent.config?.models?.chat;
+        if (preferredId) {
+          resolvedModel = models.availableModels.find(m => m.id === preferredId);
+          if (!resolvedModel) {
+            const available = models.availableModels.map(m => `${m.provider}/${m.id}`).join(", ");
+            log.error(`[executeIsolated] 找不到模型 "${preferredId}"。availableModels=[${available}]`);
+            throw new Error(`executeIsolated: 模型 "${preferredId}" 不在可用列表中`);
+          }
+        } else {
+          // 主界面模型药丸只改 sessionModel（currentModel），不写 config.models.chat；
+          // 当前助手的心跳/巡检应与主对话一致，故优先用 currentModel。
+          const activeAgent = this._d.getAgent();
+          if (targetAgent === activeAgent && models.currentModel) {
+            log.log(
+              `[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，使用当前会话模型 ${models.currentModel.id}`,
+            );
+            resolvedModel = models.currentModel;
+          } else if (models.defaultModel) {
+            log.log(
+              `[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，回退到默认模型 ${models.defaultModel.id}`,
+            );
+            resolvedModel = models.defaultModel;
+          } else {
+            log.error(`[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat`);
+            throw new Error(`executeIsolated: agent "${targetAgent.agentName}" 未指定 models.chat`);
+          }
         }
       }
       const execModel = models.resolveExecutionModel(resolvedModel);

@@ -90,7 +90,11 @@ export function ActivityPanel() {
     try {
       const res = await hanaFetch('/api/desk/heartbeat', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
-      if (data.error) return;
+      if (data.error) {
+        const hana = (window as unknown as { hana?: { showNotification?: (t: string, b: string) => void } }).hana;
+        hana?.showNotification?.(t('activity.title'), String(data.error));
+        return;
+      }
       // 巡检异步执行，稍后刷新列表
       setTimeout(() => {
         hanaFetch('/api/desk/activities')

@@ -84,14 +84,22 @@ const _defaultLinkOpen = md.renderer.rules.link_open ||
 
 md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
   const hrefIdx = tokens[idx].attrIndex("href");
+  let href = "";
   if (hrefIdx >= 0) {
-    const href = tokens[idx].attrs[hrefIdx][1] || "";
-    if (!/^https?:\/\//i.test(href) && !href.startsWith("/") && !href.startsWith("#")) {
+    href = tokens[idx].attrs[hrefIdx][1] || "";
+    const isChannelDoc = href.startsWith("hana-channel-doc:");
+    if (!/^https?:\/\//i.test(href) && !href.startsWith("/") && !href.startsWith("#") && !isChannelDoc) {
       tokens[idx].attrs[hrefIdx][1] = "#";
+      href = "#";
+    }
+    if (isChannelDoc) {
+      tokens[idx].attrSet("class", "hana-channel-doc-link");
+      tokens[idx].attrSet("data-hana-channel-doc", href.slice("hana-channel-doc:".length));
+    } else {
+      tokens[idx].attrSet("target", "_blank");
+      tokens[idx].attrSet("rel", "noopener noreferrer");
     }
   }
-  tokens[idx].attrSet("target", "_blank");
-  tokens[idx].attrSet("rel", "noopener noreferrer");
   return _defaultLinkOpen(tokens, idx, options, env, self);
 };
 

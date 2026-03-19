@@ -318,9 +318,52 @@ export class Agent {
   }
 
   /**
+   * Bridge 本人（owner）私聊 JSONL 收尾：与桌面 session 的 notifySessionEnd 同级，
+   * 触发最终滚动摘要、编译与经验提取。按文件去重、顺序执行，避免并行打爆模型。
+   */
+  async flushBridgeOwnerMemory() {
+    const ticker = this._memoryTicker;
+    if (!ticker?.notifySessionEnd) return;
+
+    const indexPath = path.join(this.sessionDir, "bridge", "bridge-sessions.json");
+    let index = {};
+    try {
+      index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
+    } catch {
+      return;
+    }
+
+    const bridgeDir = path.join(this.sessionDir, "bridge");
+    const seen = new Set();
+    const TIMEOUT_MS = 12_000;
+
+    for (const raw of Object.values(index)) {
+      const entry = typeof raw === "string" ? { file: raw } : raw;
+      if (!entry?.file || typeof entry.file !== "string") continue;
+      if (!entry.file.startsWith("owner/")) continue;
+
+      const fullPath = path.join(bridgeDir, entry.file);
+      if (seen.has(fullPath)) continue;
+      seen.add(fullPath);
+
+      try {
+        if (!fs.existsSync(fullPath)) continue;
+      } catch {
+        continue;
+      }
+
+      await Promise.race([
+        ticker.notifySessionEnd(fullPath),
+        new Promise((r) => setTimeout(r, TIMEOUT_MS)),
+      ]).catch(() => {});
+    }
+  }
+
+  /**
    * 优雅关闭：停止记忆调度，等待 tick 完成后关闭 DB
    */
   async dispose() {
+    await this.flushBridgeOwnerMemory();
     await this._memoryTicker?.stop();
     this._factStore?.close();
   }
@@ -469,6 +512,14 @@ export class Agent {
 
     // 重建 system prompt
     this._systemPrompt = this.buildSystemPrompt();
+  }
+
+  /**
+   * 仅从磁盘重载 config.yaml（不写盘）。
+   * 用于 REST 在非当前助手上合并写入后，同步长驻实例的 _config（如 models.chat）。
+   */
+  reloadConfigFromDisk() {
+    this._config = loadConfig(this.configPath);
   }
 
   // ════════════════════════════

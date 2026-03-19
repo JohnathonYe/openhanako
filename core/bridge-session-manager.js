@@ -3,6 +3,10 @@
  *
  * 负责 bridge session 索引读写、外部消息执行、消息注入。
  * 从 Engine 提取，Engine 通过 manager 访问 bridge 功能。
+ *
+ * 本人（owner）会话在每轮 prompt 成功后调用 memoryTicker.notifyTurn，与桌面 SessionCoordinator.prompt
+ * 对齐，使滚动摘要 / 六轮编译 / 每日任务与桌面一致；收尾由 SessionCoordinator.closeAllSessions 与
+ * Agent.dispose 中的 flushBridgeOwnerMemory 触发 notifySessionEnd。
  */
 import fs from "fs";
 import path from "path";
@@ -221,6 +225,12 @@ export class BridgeSessionManager {
 
       try {
         await session.prompt(prompt);
+        // 与桌面 prompt 后 notifyTurn 对齐：滚动摘要、经验计数、每日检查
+        if (!opts.guest) {
+          const turnPath = session.sessionManager?.getSessionFile?.();
+          const ticker = this._deps.getAgent()?.memoryTicker;
+          if (turnPath && ticker?.notifyTurn) ticker.notifyTurn(turnPath);
+        }
       } finally {
         unsub?.();
         this._activeSessions.delete(sessionKey);

@@ -40,10 +40,22 @@ function parseCSV(text) {
 }
 
 const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"]);
+const VIDEO_EXTS = new Set([".mp4", ".webm", ".mov"]);
+const AUDIO_EXTS = new Set([".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac"]);
 
 function isImageFile(name) {
   const ext = (name || "").toLowerCase().replace(/^.*(\.\w+)$/, "$1");
   return IMAGE_EXTS.has(ext);
+}
+
+function isVideoFile(name) {
+  const ext = (name || "").toLowerCase().replace(/^.*(\.\w+)$/, "$1");
+  return VIDEO_EXTS.has(ext);
+}
+
+function isAudioFile(name) {
+  const ext = (name || "").toLowerCase().replace(/^.*(\.\w+)$/, "$1");
+  return AUDIO_EXTS.has(ext);
 }
 
 /** 给 md-content 里的代码块注入复制按钮 */
@@ -120,8 +132,8 @@ function cronToHuman(schedule) {
 // 暴露到全局命名空间
 window.HanaModules = window.HanaModules || {};
 window.HanaModules.utils = {
-  escapeHtml, parseCSV, isImageFile, injectCopyButtons,
-  formatSessionDate, cronToHuman, IMAGE_EXTS,
+  escapeHtml, parseCSV, isImageFile, isVideoFile, isAudioFile, injectCopyButtons,
+  formatSessionDate, cronToHuman, IMAGE_EXTS, VIDEO_EXTS, AUDIO_EXTS,
 };
 
 })();

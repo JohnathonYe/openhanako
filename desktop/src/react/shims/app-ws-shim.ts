@@ -7,6 +7,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useStore } from '../stores';
+import { looksLikeProviderRejectedMultimodal } from '../../../../lib/media-reject-heuristic.js';
 
 declare function t(key: string, vars?: Record<string, string>): any;
 
@@ -408,6 +409,7 @@ function handleServerMessage(msg: any): void {
       break;
 
     case 'turn_end':
+      useStore.getState().setLastOutboundMediaKinds(null);
       _cr().finishAssistantTurn();
       _sb().loadSessions();
       break;
@@ -528,9 +530,17 @@ function handleServerMessage(msg: any): void {
       break;
     }
 
-    case 'error':
+    case 'error': {
+      const kinds = useStore.getState().lastOutboundMediaKinds;
+      const sp = state.currentSessionPath;
+      const mid = state.models?.find((m: { isCurrent?: boolean }) => m.isCurrent)?.id;
+      if (kinds?.length && sp && mid && looksLikeProviderRejectedMultimodal(msg.message)) {
+        useStore.getState().markSessionMediaKindsRejected(sp, mid, kinds);
+      }
+      useStore.getState().setLastOutboundMediaKinds(null);
       showError(msg.message);
       break;
+    }
 
     case 'status':
       applyStreamingStatus(msg.isStreaming);

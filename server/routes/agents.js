@@ -390,6 +390,11 @@ export default async function agentsRoute(app, { engine }) {
       const configPath = path.join(agentDir(engine, id), "config.yaml");
       saveConfig(configPath, partial);
       engine.invalidateAgentListCache();
+      // 非当前助手：已写盘但长驻 Agent 内存仍是旧 _config（否则心跳 executeIsolated 读不到 models.chat）
+      const loadedAg = engine.getAgent(id);
+      if (loadedAg && !isActiveAgent(engine, id)) {
+        loadedAg.reloadConfigFromDisk();
+      }
       // active agent 需要额外触发模块刷新 + prompt 重建
       if (isActiveAgent(engine, id)) {
         await engine.updateConfig(partial);

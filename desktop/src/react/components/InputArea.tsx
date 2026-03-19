@@ -8,37 +8,26 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../stores';
-import { isImageFile } from '../utils/format';
+import {
+  countMediaAttachments,
+  guessMediaMimeType,
+  isAudioFile,
+  isImageFile,
+  isMediaAttachment,
+  isVideoFile,
+  MAX_AUDIO_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_MEDIA_ATTACHMENTS,
+  MAX_VIDEO_BYTES,
+  MAX_WS_MESSAGE_BYTES,
+} from '../utils/format';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { useI18n } from '../hooks/use-i18n';
+import { buildMediaAcceptAttr, isMimeAllowedForModelInput } from '../utils/model-media';
+import { mediaKindsFromPayloadImages } from '../../../../lib/media-reject-heuristic.js';
 import type { ThinkingLevel } from '../stores/model-slice';
-
-// ── Toast 通知 ──
-
-function showToast(text: string, type: 'success' | 'error' = 'success', duration = 20000) {
-  const el = document.createElement('div');
-  el.className = `hana-toast ${type}`;
-
-  const span = document.createElement('span');
-  span.textContent = text;
-  el.appendChild(span);
-
-  const close = document.createElement('button');
-  close.className = 'hana-toast-close';
-  close.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
-  close.onclick = dismiss;
-  el.appendChild(close);
-
-  document.body.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-
-  const timer = setTimeout(dismiss, duration);
-  function dismiss() {
-    clearTimeout(timer);
-    el.classList.remove('show');
-    setTimeout(() => el.remove(), 300);
-  }
-}
+import type { AttachedFile } from '../stores/input-slice';
+import { showHanaToast } from '../utils/hana-toast';
 
 // ── 斜杠命令 ──
 
@@ -91,10 +80,84 @@ export function InputArea() {
 }
 
 /** t() 翻译缺失时返回 key 本身（truthy），|| fallback 不会触发。这个包一层检测 */
-const tSafe = (t: (k: string) => string, key: string, fallback: string) => {
-  const v = t(key);
-  return v !== key ? v : fallback;
+const tSafe = (
+  t: (k: string, v?: Record<string, string | number>) => string,
+  key: string,
+  fallback: string,
+  vars?: Record<string, string | number>,
+) => {
+  const v = vars ? t(key, vars) : t(key);
+  if (v !== key) return v;
+  if (!vars) return fallback;
+  let out = fallback;
+  for (const [k, val] of Object.entries(vars)) {
+    out = out.replaceAll(`{${k}}`, String(val));
+  }
+  return out;
 };
+
+const MULTIMODAL_STORAGE_KEY = 'hana-multimodal-to-model';
+
+/** base64 字符串解码后的近似字节数（用于发送前体积校验） */
+function approxDecodedBase64Bytes(b64: string): number {
+  if (!b64) return 0;
+  let pad = 0;
+  if (b64.endsWith('==')) pad = 2;
+  else if (b64.endsWith('=')) pad = 1;
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - pad);
+}
+
+function maxBytesForMediaMime(mimeType: string): number {
+  if (mimeType.startsWith('video/')) return MAX_VIDEO_BYTES;
+  if (mimeType.startsWith('audio/')) return MAX_AUDIO_BYTES;
+  return MAX_IMAGE_BYTES;
+}
+
+/** 与 server chat 路由一致：去掉 ;codecs=… 等参数，避免白名单校验失败 */
+function normalizeMimeForSend(mime: string): string {
+  const base = mime.split(';')[0].trim().toLowerCase();
+  if (base === 'image/jpg') return 'image/jpeg';
+  if (base === 'video/x-quicktime') return 'video/quicktime';
+  return base;
+}
+
+/** 粘贴/选择器生成的假路径，不写进会话历史（重载后无法读盘） */
+function isEphemeralAttachmentPath(p: string): boolean {
+  const base = p.replace(/\\/g, '/').split('/').pop() || p;
+  return base.startsWith('picked-') || base.startsWith('clipboard-');
+}
+
+/** 可写入会话文本的绝对路径：历史里用 `[附件]` 回显，文件删除则聊天区不展示该卡片 */
+function isPersistableLocalPathForHistory(p: string): boolean {
+  if (!p || typeof p !== 'string' || isEphemeralAttachmentPath(p)) return false;
+  if (p.startsWith('/')) return true;
+  return /^[A-Za-z]:[\\/]/.test(p);
+}
+
+/**
+ * 媒体发送排查日志：
+ * - Vite 开发：`import.meta.env.DEV`
+ * - 任意环境：`localStorage.setItem('hana-debug-media','1')` 后刷新
+ */
+function formatBlockedMediaKinds(blocked: Array<'image' | 'video' | 'audio'>): string {
+  const loc = typeof window !== 'undefined' && window.i18n?.locale?.startsWith('en') ? 'en' : 'zh';
+  const isEn = loc === 'en';
+  const map: Record<string, string> = {
+    image: isEn ? 'image' : '图片',
+    video: isEn ? 'video' : '视频',
+    audio: isEn ? 'audio' : '音频',
+  };
+  return blocked.map(k => map[k] || k).join(isEn ? ', ' : '、');
+}
+
+function shouldLogMediaDebug(): boolean {
+  try {
+    const viteDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+    if (viteDev) return true;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('hana-debug-media') === '1') return true;
+  } catch { /* ignore */ }
+  return false;
+}
 
 function InputAreaInner() {
   const { t } = useI18n();
@@ -115,6 +178,12 @@ function InputAreaInner() {
   const setThinkingLevel = useStore(s => s.setThinkingLevel);
 
   const currentModelInfo = useMemo(() => models.find(m => m.isCurrent), [models]);
+  /** 文件选择器 accept：与 models.json / Pi 的 model.input 一致；模型未就绪时不收紧 */
+  const mediaAccept = useMemo(
+    () => buildMediaAcceptAttr(currentModelInfo?.id ? currentModelInfo.input : undefined),
+    [currentModelInfo?.id, currentModelInfo?.input],
+  );
+  const applyModelMediaCaps = Boolean(currentModelInfo?.id);
 
   // Local state
   const [inputText, setInputText] = useState('');
@@ -125,7 +194,17 @@ function InputAreaInner() {
   const [slashBusy, setSlashBusy] = useState<string | null>(null); // command name while executing
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mediaFileInputRef = useRef<HTMLInputElement>(null);
   const isComposing = useRef(false);
+
+  /** 默认开启：图片/视频以 Base64 走模型多模态；仅当用户显式关闭时 localStorage 为 '0' */
+  const [multimodalToModel, setMultimodalToModel] = useState(() => {
+    try {
+      return localStorage.getItem(MULTIMODAL_STORAGE_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
 
   // Zustand actions
   const addAttachedFile = useStore(s => s.addAttachedFile);
@@ -176,13 +255,13 @@ function InputAreaInner() {
       const data = await res.json();
 
       if (!res.ok || data.error) {
-        showToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
+        showHanaToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
         return;
       }
 
-      showToast(tSafe(t, 'slash.diaryDone', '日记已保存'), 'success');
+      showHanaToast(tSafe(t, 'slash.diaryDone', '日记已保存'), 'success');
     } catch (err) {
-      showToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
+      showHanaToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
     } finally {
       setSlashBusy(null);
     }
@@ -250,34 +329,197 @@ function InputAreaInner() {
   })();
 
 
-  // ── Paste image ──
+  const toggleMultimodalToModel = useCallback(() => {
+    setMultimodalToModel((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(MULTIMODAL_STORAGE_KEY, next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  // ── 剪贴板图片/视频/语音：默认始终可粘贴，是否发给模型由「看图/视频/语音」开关决定 ──
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (!item.type.startsWith('image/')) continue;
-      e.preventDefault();
+    if (!items?.length) return;
+
+    let reservedMediaSlots = countMediaAttachments(useStore.getState().attachedFiles);
+    let handledAny = false;
+
+    for (let idx = 0; idx < items.length; idx++) {
+      const item = items[idx];
+      const kind = item.type || '';
+      if (!kind.startsWith('image/') && !kind.startsWith('video/') && !kind.startsWith('audio/')) continue;
+
       const file = item.getAsFile();
       if (!file) continue;
+
+      if (reservedMediaSlots >= MAX_MEDIA_ATTACHMENTS) {
+        if (handledAny) break;
+        showHanaToast(tSafe(t, 'input.mediaTooMany', `最多 ${MAX_MEDIA_ATTACHMENTS} 个媒体附件`), 'error');
+        break;
+      }
+
+      if (kind.startsWith('image/') || file.type.startsWith('image/')) {
+        if (file.size > MAX_IMAGE_BYTES) {
+          showHanaToast(tSafe(t, 'input.imageTooLarge', '单张图片不得超过 10MB'), 'error');
+          continue;
+        }
+      } else if (kind.startsWith('video/') || file.type.startsWith('video/')) {
+        if (file.size > MAX_VIDEO_BYTES) {
+          showHanaToast(tSafe(t, 'input.videoTooLarge', '单个视频不得超过 20MB'), 'error');
+          continue;
+        }
+      } else if (kind.startsWith('audio/') || file.type.startsWith('audio/')) {
+        if (file.size > MAX_AUDIO_BYTES) {
+          showHanaToast(tSafe(t, 'input.audioTooLarge', '单条语音不得超过 20MB'), 'error');
+          continue;
+        }
+      }
+
+      const mimeType = (file.type && file.type !== '') ? file.type : kind;
+      const baseMime = mimeType.split(';')[0].trim().toLowerCase();
+      const kindCat: 'image' | 'video' | 'audio' | null = baseMime.startsWith('image/')
+        ? 'image'
+        : baseMime.startsWith('video/')
+          ? 'video'
+          : baseMime.startsWith('audio/')
+            ? 'audio'
+            : null;
+      if (applyModelMediaCaps && kindCat && !isMimeAllowedForModelInput(baseMime, currentModelInfo?.input)) {
+        if (!handledAny) e.preventDefault();
+        handledAny = true;
+        showHanaToast(
+          tSafe(t, 'error.modelMediaNotSupported', '当前模型不支持此类媒体（{mime}）。请在 models.json 的 input 中加入 image、video 或 audio。', {
+            mime: baseMime,
+          }),
+          'error',
+        );
+        continue;
+      }
+      const spPaste = useStore.getState().currentSessionPath;
+      const midPaste = currentModelInfo?.id;
+      if (kindCat && spPaste && midPaste && useStore.getState().isSessionMediaKindRejected(spPaste, midPaste, kindCat)) {
+        if (!handledAny) e.preventDefault();
+        handledAny = true;
+        showHanaToast(
+          tSafe(t, 'error.sessionMediaKindCached', '本会话中该模型已确认不支持此类附件：{kinds}', {
+            kinds: formatBlockedMediaKinds([kindCat]),
+          }),
+          'error',
+        );
+        continue;
+      }
+      const sub = mimeType.split('/')[1] || 'bin';
+      const isVideo = mimeType.startsWith('video/');
+      const isAudio = mimeType.startsWith('audio/');
+      const displayName = isVideo ? `粘贴视频.${sub}` : isAudio ? `粘贴语音.${sub}` : `粘贴图片.${sub}`;
+
+      if (!handledAny) e.preventDefault();
+      handledAny = true;
+      reservedMediaSlots++;
+
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result as string;
-        // "data:image/png;base64,xxxxx" → 拆出 mimeType 和 base64
-        const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
         if (!match) return;
-        const [, mimeType, base64Data] = match;
-        const ext = mimeType.split('/')[1] || 'png';
+        const [, parsedMime, base64Data] = match;
         addAttachedFile({
-          path: `clipboard-${Date.now()}.${ext}`,
-          name: `粘贴图片.${ext}`,
+          path: `clipboard-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}.${sub}`,
+          name: displayName,
+          base64Data,
+          mimeType: parsedMime,
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  }, [addAttachedFile, t, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps]);
+
+  const handlePickMediaFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    if (!list?.length) return;
+    let queued = countMediaAttachments(useStore.getState().attachedFiles);
+    for (let i = 0; i < list.length; i++) {
+      const file = list[i];
+      if (!isImageFile(file.name) && !isVideoFile(file.name) && !isAudioFile(file.name)) {
+        showHanaToast(tSafe(t, 'input.mediaInvalidType', '不支持的媒体类型'), 'error');
+        continue;
+      }
+      const mimeGuessPick = (file.type && file.type !== '')
+        ? file.type.split(';')[0].trim().toLowerCase()
+        : (guessMediaMimeType(file.name) || '');
+      const kindPick: 'image' | 'video' | 'audio' | null = mimeGuessPick.startsWith('image/')
+        ? 'image'
+        : mimeGuessPick.startsWith('video/')
+          ? 'video'
+          : mimeGuessPick.startsWith('audio/')
+            ? 'audio'
+            : isImageFile(file.name)
+              ? 'image'
+              : isVideoFile(file.name)
+                ? 'video'
+                : isAudioFile(file.name)
+                  ? 'audio'
+                  : null;
+      const mimeForCaps = mimeGuessPick || guessMediaMimeType(file.name) || '';
+      if (applyModelMediaCaps && kindPick && mimeForCaps && !isMimeAllowedForModelInput(mimeForCaps, currentModelInfo?.input)) {
+        showHanaToast(
+          tSafe(t, 'error.modelMediaNotSupported', '当前模型不支持此类媒体（{mime}）。请在 models.json 的 input 中加入 image、video 或 audio。', {
+            mime: mimeForCaps,
+          }),
+          'error',
+        );
+        continue;
+      }
+      const spPick = useStore.getState().currentSessionPath;
+      const midPick = currentModelInfo?.id;
+      if (kindPick && spPick && midPick && useStore.getState().isSessionMediaKindRejected(spPick, midPick, kindPick)) {
+        showHanaToast(
+          tSafe(t, 'error.sessionMediaKindCached', '本会话中该模型已确认不支持此类附件：{kinds}', {
+            kinds: formatBlockedMediaKinds([kindPick]),
+          }),
+          'error',
+        );
+        continue;
+      }
+      if (queued >= MAX_MEDIA_ATTACHMENTS) {
+        showHanaToast(tSafe(t, 'input.mediaTooMany', `最多 ${MAX_MEDIA_ATTACHMENTS} 个媒体附件`), 'error');
+        break;
+      }
+      if (isImageFile(file.name) && file.size > MAX_IMAGE_BYTES) {
+        showHanaToast(tSafe(t, 'input.imageTooLarge', '单张图片不得超过 10MB'), 'error');
+        continue;
+      }
+      if (isVideoFile(file.name) && file.size > MAX_VIDEO_BYTES) {
+        showHanaToast(tSafe(t, 'input.videoTooLarge', '单个视频不得超过 20MB'), 'error');
+        continue;
+      }
+      if (isAudioFile(file.name) && file.size > MAX_AUDIO_BYTES) {
+        showHanaToast(tSafe(t, 'input.audioTooLarge', '单条语音不得超过 20MB'), 'error');
+        continue;
+      }
+      queued++;
+      const reader = new FileReader();
+      const fname = file.name;
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) return;
+        const mimeType = match[1];
+        const base64Data = match[2];
+        addAttachedFile({
+          path: `picked-${Date.now()}-${fname}`,
+          name: fname,
           base64Data,
           mimeType,
         });
       };
       reader.readAsDataURL(file);
-      break; // 只处理第一张
     }
-  }, [addAttachedFile]);
+    e.target.value = '';
+  }, [addAttachedFile, t, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps]);
 
   // ── Load plan mode + thinking level on mount ──
   useEffect(() => {
@@ -327,39 +569,110 @@ function InputAreaInner() {
         _sb().loadSessions();
       }
 
-      // 分离图片和非图片附件
-      const imageFiles = hasFiles ? attachedFiles.filter(f => !f.isDirectory && isImageFile(f.name)) : [];
-      const otherFiles = hasFiles ? attachedFiles.filter(f => f.isDirectory || !isImageFile(f.name)) : [];
+      // 分离可发给模型的媒体 vs 路径类附件（是否被上游接受由 Pi / 模型 input 决定）
+      const mediaFiles = hasFiles ? attachedFiles.filter(f => isMediaAttachment(f)) : [];
+      const pathOnlyMedia = !multimodalToModel && hasFiles ? mediaFiles : [];
+      const mediaForModel = multimodalToModel ? mediaFiles : [];
+      const otherFiles = hasFiles ? attachedFiles.filter(f => !isMediaAttachment(f)) : [];
 
       let finalText = text;
-      if (otherFiles.length > 0) {
-        const fileBlock = otherFiles
-          .map(f => f.isDirectory ? `[目录] ${f.path}` : `[附件] ${f.path}`)
-          .join('\n');
+      const pathParts: string[] = [
+        ...otherFiles.map(f => (f.isDirectory ? `[目录] ${f.path}` : `[附件] ${f.path}`)),
+        ...pathOnlyMedia.map(f => `[附件] ${f.path}`),
+      ];
+      // 多模态 inline 发送时仍把「真实磁盘路径」追加进会话文本，便于历史里按路径回显；假路径不写
+      if (multimodalToModel && mediaForModel.length > 0) {
+        const seen = new Set(pathParts);
+        for (const f of mediaForModel) {
+          if (!isPersistableLocalPathForHistory(f.path)) continue;
+          const line = `[附件] ${f.path}`;
+          if (!seen.has(line)) {
+            seen.add(line);
+            pathParts.push(line);
+          }
+        }
+      }
+      if (pathParts.length > 0) {
+        const fileBlock = pathParts.join('\n');
         finalText = text ? `${text}\n\n${fileBlock}` : fileBlock;
       }
 
-      // 图片文件读 base64 编码
-      const hana = (window as any).hana;
+      // Pi SDK 使用 ImageContent：视频/音频也用 type: 'image' + 对应 mime，由 provider 映射为 inlineData / data URL
+      const readB64 = (window as any).platform?.readFileBase64 ?? (window as any).hana?.readFileBase64;
       const images: Array<{ type: 'image'; data: string; mimeType: string }> = [];
-      if (imageFiles.length > 0) {
-        for (const img of imageFiles) {
+      const extraPathFromCaps: string[] = [];
+      if (multimodalToModel && mediaForModel.length > 0) {
+        if (mediaForModel.length > MAX_MEDIA_ATTACHMENTS) {
+          showHanaToast(tSafe(t, 'input.mediaTooMany', `最多 ${MAX_MEDIA_ATTACHMENTS} 个媒体附件`), 'error');
+          return;
+        }
+        for (const img of mediaForModel) {
           try {
+            let base64: string | null | undefined;
+            let mimeType: string | undefined;
             if (img.base64Data && img.mimeType) {
-              // 内联 base64（粘贴图片）
-              images.push({ type: 'image', data: img.base64Data, mimeType: img.mimeType });
-            } else if (hana?.readFileBase64) {
-              const base64: string = await hana.readFileBase64(img.path);
-              if (base64) {
-                const ext = img.name.toLowerCase().replace(/^.*\./, '');
-                const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml' };
-                images.push({ type: 'image', data: base64, mimeType: mimeMap[ext] || 'image/png' });
+              base64 = img.base64Data;
+              mimeType = img.mimeType;
+            } else if (readB64) {
+              base64 = await readB64(img.path);
+              mimeType = guessMediaMimeType(img.name) || undefined;
+            }
+            if (base64 && mimeType) {
+              const mimeNorm = normalizeMimeForSend(mimeType);
+              const maxBytes = maxBytesForMediaMime(mimeNorm);
+              if (approxDecodedBase64Bytes(base64) > maxBytes) {
+                const msg = mimeNorm.startsWith('video/')
+                  ? tSafe(t, 'input.videoTooLarge', '单个视频不得超过 20MB')
+                  : mimeNorm.startsWith('audio/')
+                    ? tSafe(t, 'input.audioTooLarge', '单条语音不得超过 20MB')
+                    : tSafe(t, 'input.imageTooLarge', '单张图片不得超过 10MB');
+                showHanaToast(msg, 'error');
+                return;
               }
+              if (applyModelMediaCaps && !isMimeAllowedForModelInput(mimeNorm, currentModelInfo?.input)) {
+                extraPathFromCaps.push(`[附件] ${img.name}`);
+                continue;
+              }
+              images.push({ type: 'image', data: base64, mimeType: mimeNorm });
+            } else {
+              // 已开启多模态则必须走 inline 通道；勿静默降级为纯路径（否则模型只能 read_file）
+              showHanaToast(
+                tSafe(
+                  t,
+                  'input.mediaReadFailed',
+                  '无法读取该媒体为 Base64，未发送。请检查文件是否存在，或关闭多模态开关改为仅发送路径。',
+                ),
+                'error',
+              );
+              return;
             }
           } catch {
-            // 读取失败的图片降级为路径文本
-            finalText = finalText ? `${finalText}\n\n[附件] ${img.path}` : `[附件] ${img.path}`;
+            showHanaToast(
+              tSafe(
+                t,
+                'input.mediaReadFailed',
+                '读取附件失败，未发送。请重试或关闭多模态开关改为仅发送路径。',
+              ),
+              'error',
+            );
+            return;
           }
+        }
+      }
+      if (extraPathFromCaps.length) {
+        const block = extraPathFromCaps.join('\n');
+        finalText = finalText ? `${finalText}\n\n${block}` : block;
+      }
+
+      if (shouldLogMediaDebug()) {
+        const vids = attachedFiles.filter(f => isVideoFile(f.name));
+        if (vids.length > 0) {
+          console.log('[InputArea] video in tray → ws payload', {
+            multimodalToModel,
+            videoNames: vids.map(v => v.name),
+            imagesInPayload: images.length,
+            pathOnlyVideos: pathOnlyMedia.filter(f => isVideoFile(f.name)).map(f => f.name),
+          });
         }
       }
 
@@ -371,29 +684,91 @@ function InputAreaInner() {
         docForRender = currentDoc;
       }
 
-      if (docContextAttached) {
-        setDocContextAttached(false);
-      }
-
       const filesToRender = hasFiles ? [...attachedFiles] : null;
-      // 文档上下文渲染为附件卡片
       const allFiles = filesToRender ? [...filesToRender] : [];
       if (docForRender) {
         allFiles.push({ path: docForRender.path, name: docForRender.name });
       }
+
+      const wsMsg: Record<string, unknown> = { type: 'prompt', text: finalText };
+      if (images.length > 0) wsMsg.images = images;
+
+      let payloadStr: string;
+      try {
+        payloadStr = JSON.stringify(wsMsg);
+      } catch {
+        showHanaToast(tSafe(t, 'input.serializeFailed', '消息序列化失败，附件可能过大'), 'error');
+        return;
+      }
+      if (payloadStr.length > MAX_WS_MESSAGE_BYTES) {
+        showHanaToast(
+          tSafe(
+            t,
+            'input.payloadTooLarge',
+            '整包消息超过传输上限（多为视频/语音 Base64），请减少附件或关闭多模态仅发路径。',
+          ),
+          'error',
+        );
+        return;
+      }
+
+      if (shouldLogMediaDebug()) {
+        console.log('[InputArea] ws.send prompt', {
+          textLen: finalText.length,
+          mediaSlots: images.length,
+          mimes: images.map(i => i.mimeType),
+          approxDecodedBytes: images.map(i => approxDecodedBase64Bytes(i.data)),
+          jsonChars: payloadStr.length,
+        });
+      }
+
+      const ws = state.ws as WebSocket | undefined;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showHanaToast(tSafe(t, 'input.notConnected', '未连接服务器，无法发送'), 'error');
+        return;
+      }
+
+      const outboundKinds = images.length
+        ? mediaKindsFromPayloadImages(images.map(i => ({ mimeType: i.mimeType })))
+        : [];
+      const sp = useStore.getState().currentSessionPath;
+      const mid = currentModelInfo?.id;
+      if (sp && mid && outboundKinds.length) {
+        const blocked = outboundKinds.filter(k =>
+          useStore.getState().isSessionMediaKindRejected(sp, mid, k),
+        );
+        if (blocked.length) {
+          showHanaToast(
+            tSafe(t, 'error.sessionMediaKindCached', '本会话中该模型已确认不支持此类附件：{kinds}', {
+              kinds: formatBlockedMediaKinds(blocked),
+            }),
+            'error',
+          );
+          return;
+        }
+      }
+      useStore.getState().setLastOutboundMediaKinds(outboundKinds.length ? outboundKinds : null);
+
+      try {
+        ws.send(payloadStr);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showHanaToast(tSafe(t, 'input.sendFailed', '发送失败：') + msg, 'error');
+        return;
+      }
+
+      if (docContextAttached) {
+        setDocContextAttached(false);
+      }
+
       const _cr = () => window.HanaModules.chatRender;
       _cr().addUserMessage(text, allFiles.length > 0 ? allFiles : null, null);
-
       setInputText('');
       clearAttachedFiles();
-
-      const wsMsg: any = { type: 'prompt', text: finalText };
-      if (images.length > 0) wsMsg.images = images;
-      state.ws?.send(JSON.stringify(wsMsg));
     } finally {
       setSending(false);
     }
-  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected]);
+  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, t]);
 
   // ── Steer (插话) ──
   const handleSteer = useCallback(() => {
@@ -457,13 +832,6 @@ function InputAreaInner() {
     <>
       <TodoDisplay todos={sessionTodos} />
 
-      {attachedFiles.length > 0 && (
-        <AttachedFilesBar
-          files={attachedFiles}
-          onRemove={removeAttachedFile}
-        />
-      )}
-
       {slashMenuOpen && filteredCommands.length > 0 && (
         <SlashCommandMenu
           commands={filteredCommands}
@@ -482,6 +850,12 @@ function InputAreaInner() {
       )}
 
       <div className="input-wrapper">
+        {attachedFiles.length > 0 && (
+          <AttachedFilesBar
+            files={attachedFiles}
+            onRemove={removeAttachedFile}
+          />
+        )}
         <textarea
           ref={textareaRef}
           id="inputBox"
@@ -505,6 +879,23 @@ function InputAreaInner() {
               disabled={!hasDoc}
               onToggle={toggleDocContext}
             />
+            <MultimodalToggleButton
+              enabled={multimodalToModel}
+              onToggle={toggleMultimodalToModel}
+            />
+            {multimodalToModel && mediaAccept.length > 0 && (
+              <>
+                <input
+                  ref={mediaFileInputRef}
+                  type="file"
+                  className="hana-hidden-file-input"
+                  accept={mediaAccept}
+                  multiple
+                  onChange={handlePickMediaFiles}
+                />
+                <MediaAttachButton onClick={() => mediaFileInputRef.current?.click()} />
+              </>
+            )}
           </div>
           <div className="input-controls">
             {currentModelInfo?.reasoning !== false && (
@@ -561,28 +952,59 @@ function TodoDisplay({ todos }: { todos: Array<{ text: string; done: boolean }> 
   );
 }
 
-// ── Attached Files ──
+// ── Attached Files（贴在输入框正上方，内联 base64 的图/视频显示缩略图）──
 
 function AttachedFilesBar({ files, onRemove }: {
-  files: Array<{ path: string; name: string; isDirectory?: boolean }>;
+  files: AttachedFile[];
   onRemove: (index: number) => void;
 }) {
   const { SVG_ICONS } = (window as any).HanaModules?.icons ?? {};
 
   return (
-    <div className="attached-files">
-      {files.map((f, i) => (
-        <span key={f.path} className="file-tag">
-          <span className="file-tag-name">
-            <span
-              className="file-tag-icon"
-              dangerouslySetInnerHTML={{ __html: f.isDirectory ? SVG_ICONS?.folder : SVG_ICONS?.clip }}
-            />
-            {f.name}
-          </span>
-          <button className="file-tag-remove" onClick={() => onRemove(i)}>✕</button>
-        </span>
-      ))}
+    <div className="attached-files attached-files--above-input" aria-label="attachments">
+      {files.map((f, i) => {
+        const mime = f.mimeType || '';
+        const hasInline = !!(f.base64Data && mime);
+        const isVid = mime.startsWith('video/') || isVideoFile(f.name);
+        const isAud = mime.startsWith('audio/') || isAudioFile(f.name);
+        const isImg = (mime.startsWith('image/') || isImageFile(f.name)) && !isVid && !isAud;
+        const showPreview = hasInline && (isImg || isVid || isAud);
+        const dataUrl = showPreview ? `data:${mime};base64,${f.base64Data}` : null;
+
+        return (
+          <div
+            key={`${i}-${f.path}`}
+            className={'file-tag' + (showPreview ? ' file-tag--preview' : ' file-tag--path')}
+          >
+            {showPreview && dataUrl && isImg && (
+              <div className="file-tag-thumb-wrap">
+                <img className="file-tag-thumb" src={dataUrl} alt="" />
+              </div>
+            )}
+            {showPreview && dataUrl && isVid && (
+              <div className="file-tag-thumb-wrap file-tag-thumb-wrap--video">
+                <video className="file-tag-thumb" src={dataUrl} muted playsInline preload="metadata" />
+                <span className="file-tag-video-badge">▶</span>
+              </div>
+            )}
+            {showPreview && dataUrl && isAud && (
+              <div className="file-tag-thumb-wrap file-tag-thumb-wrap--audio">
+                <audio className="file-tag-thumb file-tag-thumb--audio" src={dataUrl} controls preload="metadata" />
+              </div>
+            )}
+            <span className="file-tag-name">
+              {!showPreview && (
+                <span
+                  className="file-tag-icon"
+                  dangerouslySetInnerHTML={{ __html: f.isDirectory ? SVG_ICONS?.folder : SVG_ICONS?.clip }}
+                />
+              )}
+              <span className="file-tag-label">{f.name}</span>
+            </span>
+            <button type="button" className="file-tag-remove" onClick={() => onRemove(i)} aria-label="Remove">✕</button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -609,10 +1031,14 @@ function PlanModeButton({ enabled, onToggle }: {
     }
   }, [enabled, onToggle]);
 
+  const title = enabled
+    ? tSafe(t, 'input.planModeTooltipOn', '已启动（点击关闭）')
+    : tSafe(t, 'input.planModeTooltipOff', '未启动（点击开启）');
+
   return (
     <button
-      className={'plan-mode-btn' + (!enabled ? ' active' : '')}
-      title={t('input.planMode') || '操作电脑'}
+      className={'plan-mode-btn' + (enabled ? ' active' : '')}
+      title={title}
       onClick={handleClick}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -647,6 +1073,48 @@ function DocContextButton({ active, disabled, onToggle }: {
         <polyline points="10 9 9 9 8 9" />
       </svg>
       <span className="desk-context-label">{t('input.docContext') || '看着文档说'}</span>
+    </button>
+  );
+}
+
+// ── 多模态（图片/视频/语音发给模型）──
+
+function MultimodalToggleButton({ enabled, onToggle }: {
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <button
+      type="button"
+      className={'multimodal-toggle-btn' + (enabled ? ' active' : '')}
+      title={tSafe(t, 'input.multimodalTitle', '开启后将图片/视频/语音作为模型输入（部分模型不支持）')}
+      onClick={onToggle}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <polyline points="21 15 16 10 5 21" />
+      </svg>
+      <span className="multimodal-toggle-label">{tSafe(t, 'input.multimodal', '看图/视频/语音')}</span>
+    </button>
+  );
+}
+
+function MediaAttachButton({ onClick }: { onClick: () => void }) {
+  const { t } = useI18n();
+
+  return (
+    <button
+      type="button"
+      className="media-attach-btn"
+      title={tSafe(t, 'input.mediaPickerTitle', '添加图片/视频/语音（≤5 个，图≤10MB，视频/语音≤20MB）')}
+      onClick={onClick}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+      </svg>
     </button>
   );
 }

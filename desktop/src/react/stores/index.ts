@@ -9,6 +9,7 @@ import { createDeskSlice, type DeskSlice } from './desk-slice';
 import { createModelSlice, type ModelSlice } from './model-slice';
 import { createMiscSlice, type MiscSlice } from './misc-slice';
 import { createInputSlice, type InputSlice } from './input-slice';
+import { createMediaSessionRejectSlice, type MediaSessionRejectSlice } from './media-session-reject-slice';
 
 export type StoreState = ConnectionSlice &
   SessionSlice &
@@ -19,9 +20,10 @@ export type StoreState = ConnectionSlice &
   DeskSlice &
   ModelSlice &
   MiscSlice &
-  InputSlice;
+  InputSlice &
+  MediaSessionRejectSlice;
 
-export const useStore = create<StoreState>()((set, _get, _api) => ({
+export const useStore = create<StoreState>()((set, get, _api) => ({
   ...createConnectionSlice(set),
   ...createSessionSlice(set),
   ...createStreamingSlice(set),
@@ -32,6 +34,7 @@ export const useStore = create<StoreState>()((set, _get, _api) => ({
   ...createModelSlice(set),
   ...createMiscSlice(set),
   ...createInputSlice(set),
+  ...createMediaSessionRejectSlice(set, get, _api),
 }));
 
 // Re-export slice types
@@ -46,4 +49,5 @@ export type {
   ModelSlice,
   MiscSlice,
   InputSlice,
+  MediaSessionRejectSlice,
 };

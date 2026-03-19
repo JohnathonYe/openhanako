@@ -104,7 +104,11 @@ export async function browseAgent(agentId: string) {
   await loadAgents();
 }
 
-export async function switchToAgent(agentId: string) {
+/** @returns whether switch completed successfully */
+export async function switchToAgent(
+  agentId: string,
+  options?: { skipSuccessToast?: boolean },
+): Promise<boolean> {
   const store = useSettingsStore.getState();
   try {
     const res = await hanaFetch('/api/agents/switch', {
@@ -126,8 +130,12 @@ export async function switchToAgent(agentId: string) {
     });
     await loadSettingsConfig();
     await loadAgents();
-    store.showToast(t('settings.agent.switched', { name: data.agent.name }), 'success');
+    if (!options?.skipSuccessToast) {
+      store.showToast(t('settings.agent.switched', { name: data.agent.name }), 'success');
+    }
+    return true;
   } catch (err: any) {
     store.showToast(t('settings.agent.switchFailed') + ': ' + err.message, 'error');
+    return false;
   }
 }

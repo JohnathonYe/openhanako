@@ -32,7 +32,10 @@
     "deleteFailed": "删除失败",
     "warningTitle": "关于频道",
     "warningBody": "我相信让不同记忆与思维方式的助手互动、聊天可以带来更多灵感的碰撞，所以我给 agents 们搭建了一个可以互相说话的地方，在你不在的时候也可以消耗用不完的 token。\n\n但你需要注意的是，频道功能目前是测试版，可能会出现以下问题：\n1. token 消耗过多\n2. 助手未按预期回复\n3. 记忆出现错乱\n\n建议谨慎使用",
-    "warningConfirm": "我了解了，开启频道"
+    "warningConfirm": "我了解了，开启频道",
+    "docTitle": "频道长文",
+    "docClose": "关闭",
+    "docLoadError": "加载文档失败"
   },
   "sidebar": {
     "title": "对话",
@@ -80,8 +83,24 @@
     "workspace": "工作空间：",
     "selectWorkspace": "选择工作空间",
     "planMode": "操作电脑",
+    "planModeTooltipOn": "已启动（点击关闭）",
+    "planModeTooltipOff": "未启动（点击开启）",
     "deskContext": "看着书桌说",
     "docContext": "看着文档说",
+    "multimodal": "看图/视频/语音",
+    "multimodalTitle": "默认开启：图片/视频/语音会尝试以多模态发给上游；是否接受由模型与 models.json 的 input 决定。不支持时可关闭改为仅发路径，由助手用 read_file / ffmpeg 等工具处理（技能 media-local-tools）。",
+    "mediaPickerTitle": "添加图片、视频或语音（最多 5 个，单图≤10MB，单视频/语音≤20MB）",
+    "mediaTooMany": "最多同时附加 5 个图片、视频或语音",
+    "imageTooLarge": "单张图片不得超过 10MB",
+    "videoTooLarge": "单个视频不得超过 20MB",
+    "audioTooLarge": "单条语音不得超过 20MB",
+    "modelMediaRemoved": "已移除当前模型不支持的媒体附件",
+    "mediaInvalidType": "仅支持常见图片、mp4/webm/mov 视频，或 mp3/wav/m4a 等常见音频",
+    "mediaReadFailed": "无法把附件读成模型可用的媒体数据，本次未发送。请打开多模态开关并确认文件可读，或关闭开关仅发送文件路径。",
+    "serializeFailed": "消息序列化失败，附件可能过大",
+    "payloadTooLarge": "整包消息超过传输上限（多为视频/语音/多图 Base64），请减少附件或关闭多模态仅发路径。",
+    "notConnected": "未连接服务器，无法发送",
+    "sendFailed": "发送失败：",
     "thinkingLevel": {
       "off": "关闭",
       "auto": "自动",
@@ -355,6 +374,10 @@
       "namePlaceholder": "起个名字",
       "cancel": "取消",
       "confirm": "创建",
+      "pleaseWait": "请稍候…",
+      "creating": "正在创建助手…",
+      "switchingAfterCreate": "正在切换到新助手并加载配置，可能需要几秒…",
+      "createdReady": "{name} 已创建并已切换 ✿",
       "nameRequired": "请输入助手名字",
       "created": "{name} 已创建 ✿",
       "createFailed": "创建失败",
@@ -816,6 +839,11 @@
     "missingParam": "缺少 {param} 参数",
     "invalidJson": "请求体必须是 JSON 对象",
     "sessionNotFound": "Session 文件不存在",
-    "stillStreaming": "{name} 还在说话，请等一下"
+    "stillStreaming": "{name} 还在说话，请等一下",
+    "videoTooLarge": "单个视频不得超过 20MB",
+    "audioTooLarge": "单条语音不得超过 20MB",
+    "modelMediaNotSupported": "当前模型不支持此类媒体（{mime}）。请在 models.json 的 input 中加入 image、video 或 audio。",
+    "mediaOmittedForModel": "所附媒体与当前模型在 models.json 中声明的能力不符，已省略。",
+    "sessionMediaKindCached": "本会话中该模型已确认不支持此类附件（{kinds}）。可新开对话再试，或在 models.json 的 input 中声明对应能力。"
   }
 }

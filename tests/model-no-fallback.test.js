@@ -122,25 +122,54 @@ describe("模型选择无 fallback", () => {
       expect(result).toEqual({ id: "qwen3.5-plus", provider: "dashscope" });
     });
 
-    it("models.chat 未配置时抛错", () => {
+    it("models.chat 未配置且无默认模型时抛错", () => {
       const coord = makeCoordinator(tempDir, {
         agentConfig: {},
-        models: makeModels([{ id: "some-model", provider: "x" }]),
+        models: makeModels([]),
       });
       const ctx = coord.createSessionContext();
       expect(() => ctx.resolveModel({})).toThrow("未指定 models.chat");
       expect(() => ctx.resolveModel({ models: {} })).toThrow("未指定 models.chat");
     });
 
-    it("指定的模型不在 availableModels 中时抛错，不 fallback", () => {
+    it("models.chat 未配置时回退到全局默认模型", () => {
+      const models = makeModels([{ id: "some-model", provider: "x" }]);
+      const coord = makeCoordinator(tempDir, { models });
+      const ctx = coord.createSessionContext();
+      expect(ctx.resolveModel({})).toEqual({ id: "some-model", provider: "x" });
+      expect(ctx.resolveModel({ models: {} })).toEqual({ id: "some-model", provider: "x" });
+    });
+
+    it("指定的模型不在 availableModels 中且无默认模型时抛错", () => {
+      const models = {
+        authStorage: {},
+        modelRegistry: {},
+        defaultModel: null,
+        availableModels: [
+          { id: "gpt-5", provider: "openai" },
+          { id: "MiniMax-M2", provider: "minimax" },
+        ],
+        resolveExecutionModel: (m) => m,
+        resolveThinkingLevel: () => "medium",
+        inferModelProvider: () => null,
+      };
+      const coord = makeCoordinator(tempDir, { models });
+      const ctx = coord.createSessionContext();
+      expect(() => ctx.resolveModel({ models: { chat: "qwen3.5-plus" } }))
+        .toThrow('模型 "qwen3.5-plus" 不在可用列表中');
+    });
+
+    it("指定的模型不在 availableModels 中时回退到全局默认模型", () => {
       const models = makeModels([
         { id: "gpt-5", provider: "openai" },
         { id: "MiniMax-M2", provider: "minimax" },
       ]);
       const coord = makeCoordinator(tempDir, { models });
       const ctx = coord.createSessionContext();
-      expect(() => ctx.resolveModel({ models: { chat: "qwen3.5-plus" } }))
-        .toThrow('模型 "qwen3.5-plus" 不在可用列表中');
+      expect(ctx.resolveModel({ models: { chat: "qwen3.5-plus" } })).toEqual({
+        id: "gpt-5",
+        provider: "openai",
+      });
     });
 
     it("availableModels 为空时抛错", () => {
@@ -154,13 +183,78 @@ describe("模型选择无 fallback", () => {
   // ────── executeIsolated ──────
 
   describe("executeIsolated", () => {
-    it("agent 未配置 models.chat 时抛错", async () => {
+    it("agent 未配置 models.chat 且无全局默认模型时抛错", async () => {
+      const base = makeModels([{ id: "some-model", provider: "x" }]);
       const coord = makeCoordinator(tempDir, {
         agentConfig: {},
-        models: makeModels([{ id: "some-model", provider: "x" }]),
+        models: { ...base, defaultModel: null, currentModel: null },
       });
       const result = await coord.executeIsolated("hello");
       expect(result.error).toContain("未指定 models.chat");
+    });
+
+    it("agent 未配置 models.chat 时可用当前会话模型（主界面切换，不写 config）", async () => {
+      const sharedAgent = {
+        agentDir: tempDir,
+        sessionDir: tempDir,
+        agentName: "test-agent",
+        config: {},
+        tools: [],
+      };
+      const sessionModel = { id: "pill-only", provider: "x" };
+      const base = makeModels([sessionModel]);
+      const models = { ...base, defaultModel: null, currentModel: sessionModel };
+      sessionManagerCreateMock.mockReturnValue({ getCwd: () => tempDir });
+      createAgentSessionMock.mockResolvedValue({
+        session: {
+          sessionManager: { getSessionFile: () => path.join(tempDir, "s.jsonl") },
+          subscribe: vi.fn(() => vi.fn()),
+          abort: vi.fn(),
+          prompt: vi.fn(),
+        },
+      });
+      const coord = new SessionCoordinator({
+        agentsDir: tempDir,
+        getAgent: () => sharedAgent,
+        getActiveAgentId: () => "test",
+        getModels: () => models,
+        getResourceLoader: () => ({ getSystemPrompt: () => "prompt" }),
+        getSkills: () => ({ getSkillsForAgent: () => [] }),
+        buildTools: async () => ({ tools: [], customTools: [] }),
+        emitEvent: () => {},
+        getHomeCwd: () => tempDir,
+        agentIdFromSessionPath: () => null,
+        switchAgentOnly: async () => {},
+        getConfig: () => ({}),
+        getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+        getAgents: () => new Map(),
+        getActivityStore: () => null,
+        getAgentById: () => sharedAgent,
+        listAgents: () => [],
+      });
+      const result = await coord.executeIsolated("hello", { agentId: "test" });
+      expect(result.error).toBeFalsy();
+      expect(createAgentSessionMock.mock.calls[0][0].model).toEqual(sessionModel);
+    });
+
+    it("agent 未配置 models.chat 时回退到全局默认模型", async () => {
+      const coord = makeCoordinator(tempDir, {
+        agentConfig: {},
+        models: makeModels([{ id: "fallback-id", provider: "x" }]),
+      });
+      createAgentSessionMock.mockResolvedValue({
+        session: {
+          sessionManager: { getSessionFile: () => path.join(tempDir, "s.jsonl") },
+          subscribe: vi.fn(() => vi.fn()),
+          prompt: vi.fn(),
+        },
+      });
+      const result = await coord.executeIsolated("hello");
+      expect(result.error).toBeFalsy();
+      expect(createAgentSessionMock.mock.calls[0][0].model).toEqual({
+        id: "fallback-id",
+        provider: "x",
+      });
     });
 
     it("配置的模型不在可用列表中时抛错", async () => {

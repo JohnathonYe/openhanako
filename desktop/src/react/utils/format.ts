@@ -37,9 +37,62 @@ export function parseCSV(text: string): string[][] {
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico']);
 
+/** 与后端 chat 路由一致的可上传视频扩展名 */
+const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov']);
+/** 语音/音频（.webm 作视频处理） */
+const AUDIO_EXTS = new Set(['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.opus', '.flac']);
+
+/** 与项目根 `lib/media-limits.js` 保持一致 */
+export const MAX_MEDIA_ATTACHMENTS = 5;
+/** 发送给模型的单张图片原始大小上限（字节） */
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+/** 单个视频原始大小上限（字节）；上传 / IPC read-base64 / WS 均同限 */
+export const MAX_VIDEO_BYTES = 20 * 1024 * 1024;
+/** 单条语音/音频上限（与 lib/media-limits.js 一致） */
+export const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+/** 与 `lib/media-limits.js` 中 MAX_WS_MESSAGE_BYTES 一致（prompt 整包 JSON 长度上限） */
+export const MAX_WS_MESSAGE_BYTES = 200 * 1024 * 1024;
+/** 除图片/视频/语音外的附件数量上限（路径引用等） */
+export const MAX_NON_MEDIA_ATTACHMENTS = 9;
+
 export function isImageFile(name: string): boolean {
   const ext = (name || '').toLowerCase().replace(/^.*(\.\w+)$/, '$1');
   return IMAGE_EXTS.has(ext);
+}
+
+export function isVideoFile(name: string): boolean {
+  const ext = (name || '').toLowerCase().replace(/^.*(\.\w+)$/, '$1');
+  return VIDEO_EXTS.has(ext);
+}
+
+export function isAudioFile(name: string): boolean {
+  const ext = (name || '').toLowerCase().replace(/^.*(\.\w+)$/, '$1');
+  return AUDIO_EXTS.has(ext);
+}
+
+export function isMediaAttachment(file: { name: string; isDirectory?: boolean }): boolean {
+  return !file.isDirectory && (isImageFile(file.name) || isVideoFile(file.name) || isAudioFile(file.name));
+}
+
+export function countMediaAttachments(files: Array<{ name: string; isDirectory?: boolean }>): number {
+  return files.filter(isMediaAttachment).length;
+}
+
+/** 根据文件名推断发送给模型的 MIME（图片/视频/音频） */
+export function guessMediaMimeType(name: string): string | null {
+  const ext = (name || '').toLowerCase().replace(/^.*\./, '');
+  const imageMap: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', ico: 'image/x-icon',
+  };
+  const videoMap: Record<string, string> = {
+    mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+  };
+  const audioMap: Record<string, string> = {
+    mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac',
+    ogg: 'audio/ogg', opus: 'audio/opus', flac: 'audio/flac',
+  };
+  return imageMap[ext] || videoMap[ext] || audioMap[ext] || null;
 }
 
 export function formatSessionDate(isoStr: string): string {

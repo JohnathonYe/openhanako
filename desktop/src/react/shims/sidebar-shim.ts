@@ -7,6 +7,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { useStore } from '../stores';
+
 // ── ctx 闭包 ──
 
 let ctx: Record<string, any> | null = null;
@@ -204,6 +206,8 @@ async function archiveSession(path: string): Promise<void> {
       _showSidebarToast((window as any).t('session.archiveFailed'));
       return;
     }
+
+    useStore.getState().clearSessionMediaRejectForSession(path);
 
     if (path === state().currentSessionPath) {
       state().currentSessionPath = null;

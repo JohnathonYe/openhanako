@@ -11,6 +11,9 @@ import path from "path";
 import YAML from "js-yaml";
 import { loadGlobalProviders, resolveApiKeyFromAuth } from "../lib/memory/config-loader.js";
 
+/** Pi `model.input`：新建与缺省回填时的默认多模态能力 */
+const DEFAULT_MODEL_INPUT = ["text", "image"];
+
 /** @deprecated 仅作为 fallback，调用方应通过 opts.modelsJsonPath 传入 */
 function getDefaultModelsJsonPath() {
   const hanakoHome = process.env.HANA_HOME
@@ -37,7 +40,7 @@ function generateModelDefaults(modelId) {
   return {
     id: modelId,
     name: humanizeName(modelId),
-    input: ["text", "image"],
+    input: [...DEFAULT_MODEL_INPUT],
   };
 }
 
@@ -194,9 +197,8 @@ export function syncFavoritesToModelsJson(configPath, opts = {}) {
       if (existingModels.has(mid)) {
         const existing = { ...existingModels.get(mid) };
         if (!existing.name) existing.name = humanizeName(mid);
-        // 补全 input 字段（旧版本创建的条目可能缺 "image"，Pi SDK 会静默过滤图片）
         if (!existing.input || !existing.input.includes("image")) {
-          existing.input = ["text", "image"];
+          existing.input = [...DEFAULT_MODEL_INPUT];
         }
         modelList.push(existing);
       } else {
@@ -221,7 +223,7 @@ export function syncFavoritesToModelsJson(configPath, opts = {}) {
       models: (pv.models || []).map(m => {
         const copy = { ...m };
         if (!copy.name) copy.name = humanizeName(copy.id);
-        if (!copy.input || !copy.input.includes("image")) copy.input = ["text", "image"];
+        if (!copy.input || !copy.input.includes("image")) copy.input = [...DEFAULT_MODEL_INPUT];
         return copy;
       }),
     };

@@ -17,6 +17,7 @@ import fs from "fs";
 import path from "path";
 import { createChannelTicker } from "../lib/channels/channel-ticker.js";
 import { appendMessage, formatMessagesForLLM } from "../lib/channels/channel-store.js";
+import { channelBodyWithOptionalDoc } from "../lib/channels/channel-doc.js";
 import { loadConfig } from "../lib/memory/config-loader.js";
 import { callProviderText } from "../lib/llm/provider-client.js";
 import { runAgentSession } from "./agent-executor.js";
@@ -149,46 +150,52 @@ export class ChannelRouter {
     // ── 检测 @ ──
     const isMentioned = msgText.includes(`@${agentName}`) || msgText.includes(`@${agentId}`);
 
-    // ── Step 1: Triage ──
-    let shouldReply = isMentioned;
+    // ── Step 1: Triage（utility_large）──
+    let shouldReply = false;
 
-    if (!shouldReply) {
-      try {
-        const { utility_large: model, large_api_key: api_key, large_base_url: base_url, large_api: api } = engine.resolveUtilityConfig();
-        if (api_key && base_url && api) {
-          const triageSystem = agentContext + memoryContext + userContext
-            + "\n\n---\n\n"
-            + "你在一个群聊频道里。阅读以下最近的消息，判断你是否要回复。\n"
-            + "回答 YES 的情况：有人跟你说话、@你、问了你能回答的问题、或者你有想说的话。\n"
-            + "回答 NO 的情况：别人已经充分回答了问题（你没有新的补充）、话题跟你无关、你插不上话、或者你刚回复过且没人追问你。\n"
-            + "只回答 YES 或 NO。";
+    try {
+      const { utility_large: model, large_api_key: api_key, large_base_url: base_url, large_api: api } = engine.resolveUtilityConfig();
+      if (api_key && base_url && api) {
+        const mentionNote = isMentioned ? "被 @ 也不强制发言，满足 NO 仍答 NO。\n" : "";
 
-          const triageTimeout = AbortSignal.timeout(10_000);
-          const triageSignal = signal
-            ? AbortSignal.any([signal, triageTimeout])
-            : triageTimeout;
-          const answer = await callProviderText({
-            api,
-            model,
-            api_key,
-            base_url,
-            systemPrompt: triageSystem,
-            messages: [{ role: "user", content: `#${channelName} 频道最近消息：\n${msgText}` }],
-            temperature: 0,
-            max_tokens: 10,
-            timeoutMs: 10_000,
-            signal: triageSignal,
-          });
-          shouldReply = answer.trim().toUpperCase().includes("YES");
-        } else {
-          // utility_large 凭证不完整，跳过 triage 直接回复
-          shouldReply = true;
-        }
-      } catch (err) {
-        // utility 模型未配置或 triage 调用失败 → 默认回复（让 agent 自己在 reply 阶段判断要不要说话）
-        console.warn(`[channel] triage 不可用，默认回复 (${agentId}/#${channelName}): ${err.message}`);
+        const triageSystem = agentContext + memoryContext + userContext
+          + "\n\n---\n\n"
+          + "群聊频道：根据最近消息判断你是否还要再发一条。\n"
+          + `你的发送者 id：「${agentId}」（显示名常作「${agentName}」）。上文若已有「${agentId}:」开头的消息，视为你已说过话。\n`
+          + mentionNote
+          + "YES：有人要你给**新**信息/执行；或你还没在本段对话里发过言且确实轮到你接话。\n"
+          + "NO：你已自我介绍过、别人已接「介绍一下」而无人单独追你；"
+          + "近期只有收到/记住了/对齐/请多指教等客套且无新问题；"
+          + "换说法重复同义（含一条里两段重复介绍）；话题无关；你刚回过且无人追问。\n"
+          + "只答 YES 或 NO。";
+
+        const triageTimeout = AbortSignal.timeout(10_000);
+        const triageSignal = signal
+          ? AbortSignal.any([signal, triageTimeout])
+          : triageTimeout;
+        const triageUserContent = `#${channelName} 最近消息：\n${msgText}\n\n---\n[调度] 发送者=${agentId}。已有你的发言则勿为笼统「介绍一下」再自我介绍。`;
+
+        const answer = await callProviderText({
+          api,
+          model,
+          api_key,
+          base_url,
+          systemPrompt: triageSystem,
+          messages: [{ role: "user", content: triageUserContent }],
+          temperature: 0,
+          max_tokens: 10,
+          timeoutMs: 10_000,
+          signal: triageSignal,
+        });
+        shouldReply = answer.trim().toUpperCase().includes("YES");
+      } else {
+        // utility_large 凭证不完整，跳过 triage：被 @ 倾向回复，否则仍尝试让全员参与（旧行为）
         shouldReply = true;
       }
+    } catch (err) {
+      // utility 模型未配置或 triage 调用失败 → 默认回复（让 agent 自己在 reply 阶段用 [NO_REPLY] 收口）
+      console.warn(`[channel] triage 不可用，默认回复 (${agentId}/#${channelName}): ${err.message}`);
+      shouldReply = true;
     }
 
     console.log(`\x1b[90m[channel] triage ${agentId}/#${channelName}: ${shouldReply ? "YES" : "NO"}${isMentioned ? " (@)" : ""}\x1b[0m`);
@@ -207,17 +214,27 @@ export class ChannelRouter {
         return { replied: false };
       }
 
+      // 超过字数则写入 _docs/*.md，频道内只发摘要 + 查看链接
+      const { body: channelBody, fullMarkdown } = channelBodyWithOptionalDoc(
+        engine.channelsDir,
+        channelName,
+        agentId,
+        replyText,
+      );
+
       // 写入频道文件
       const channelFile = path.join(engine.channelsDir, `${channelName}.md`);
-      appendMessage(channelFile, agentId, replyText);
+      appendMessage(channelFile, agentId, channelBody);
 
-      console.log(`\x1b[90m[channel] ${agentId} replied #${channelName} (${replyText.length} chars)\x1b[0m`);
-      debugLog()?.log("channel", `${agentId} replied #${channelName} (${replyText.length} chars)`);
+      const logLen = fullMarkdown ? `${fullMarkdown.length} chars (stub+doc)` : `${replyText.length} chars`;
+      console.log(`\x1b[90m[channel] ${agentId} replied #${channelName} (${logLen})\x1b[0m`);
+      debugLog()?.log("channel", `${agentId} replied #${channelName} (${logLen})`);
 
       // WS 广播
       this._hub.eventBus.emit({ type: "channel_new_message", channelName, sender: agentId }, null);
 
-      return { replied: true, replyContent: replyText };
+      // 记忆摘要仍用完整正文，避免只摘要到 stub
+      return { replied: true, replyContent: fullMarkdown ?? replyText };
     } catch (err) {
       console.error(`[channel] 回复失败 (${agentId}/#${channelName}): ${err.message}`);
       debugLog()?.error("channel", `回复失败 (${agentId}/#${channelName}): ${err.message}`);
@@ -233,20 +250,17 @@ export class ChannelRouter {
       agentId,
       [
         {
-          text: `#${channelName} 频道的最近消息：\n\n${msgText}\n\n`
-            + `请阅读这些消息，用 search_memory 查阅记忆来了解上下文和真实发生过的事。\n`
-            + `注意：你现在的回复用户看不到，这是你的内部思考环节，仅用于查阅资料和理解上下文。下一轮才是你真正发到群聊的内容。`,
+          text: `#${channelName} 最近消息：\n\n${msgText}\n\n`
+            + `内部思考轮（用户看不到）：可 search_memory。下一轮才是发到群里的内容。\n`
+            + `若已致谢/对齐/存记忆车轱辘、或你已自我介绍过而无人新问你，下一轮输出 [NO_REPLY]。一条里不要两段重复自我介绍。`,
           capture: false,
         },
         {
-          text: `现在请给出你想在 #${channelName} 群聊中发送的回复。这条回复会直接发送到群聊，所有人都能看到。\n\n`
-            + `回复规定：\n`
-            + `- 默认30字以内，像在群里说话，简短自然\n`
-            + `- 如果话题确实需要展开（比如讲故事、分析问题、详细解释），可以写到1000字\n`
-            + `- 直接输出回复内容，不要加任何前缀、解释、MOOD 或代码块\n`
-            + `- 不要重复别人已经说过的内容\n`
-            + `- 只说真实发生过的事，不要编造你没做过的活动或经历\n`
-            + `- 如果你觉得没什么好说的，回复 [NO_REPLY]`,
+          text: `发出到 #${channelName} 的最终回复（所有人可见）。\n\n`
+            + `规则：默认短句（~30字）；要展开可长文（可到约1000字），用 Markdown 排版；超过约1000字才另存文档、群里只留摘要+查看链接。\n`
+            + `直接输出正文，不要前缀/MOOD/代码块。勿复读他人或换说法重复客套（收到/记住了/对齐等）。\n`
+            + `介绍/破冰每人一次：你上文已介绍过、或别人已接笼统「介绍一下」而无人单独 @ 你 → [NO_REPLY]。一条禁止两段重复自我介绍。\n`
+            + `只写实发生过的事；无话则 [NO_REPLY]。`,
           capture: true,
         },
       ],

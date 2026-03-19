@@ -199,7 +199,7 @@ function parseUserAttachments(content: string): ParsedAttachments {
     if (m) {
       const isDir = m[1] === '目录';
       const p = m[2].trim();
-      const name = p.split('/').pop() || p;
+      const name = p.replace(/\\/g, '/').split('/').pop() || p;
       files.push({ path: p, name, isDirectory: isDir });
     } else {
       textLines.push(line);
@@ -241,8 +241,27 @@ async function loadMessages(): Promise<void> {
       for (let i = 0; i < data.messages.length; i++) {
         const m = data.messages[i];
         if (m.role === 'user') {
-          const { text: userText, files: userFiles, deskContext } = parseUserAttachments(m.content);
-          _cr().addUserMessage(userText, userFiles.length ? userFiles : null, deskContext);
+          const raw = typeof m.content === 'string' ? m.content : '';
+          const { text: userText, files: pathFiles, deskContext } = parseUserAttachments(raw);
+          const inline = Array.isArray((m as { inlineMedia?: unknown }).inlineMedia)
+            ? (m as { inlineMedia: Array<{ name: string; path: string; base64Data: string; mimeType: string }> }).inlineMedia
+            : [];
+          const pathFilesFiltered = pathFiles.filter(
+            f => !/^(picked-|clipboard-)/.test(
+              f.path.replace(/\\/g, '/').split('/').pop() || f.path,
+            ),
+          );
+          const mergedFiles = [
+            ...inline.map(im => ({
+              path: im.path,
+              name: im.name,
+              isDirectory: false as const,
+              base64Data: im.base64Data,
+              mimeType: im.mimeType,
+            })),
+            ...pathFilesFiltered,
+          ];
+          _cr().addUserMessage(userText, mergedFiles.length ? mergedFiles : null, deskContext);
         } else if (m.role === 'assistant') {
           const group = _cr().ensureGroup('assistant');
           const bubble = document.createElement('div');

@@ -39,7 +39,8 @@ export function AgentDeleteOverlay() {
       if (targetId === currentAgentId) {
         const other = agents.find(a => a.id !== targetId);
         if (!other) throw new Error(t('settings.agent.lastAgent'));
-        await switchToAgent(other.id);
+        const switched = await switchToAgent(other.id);
+        if (!switched) return;
       }
       const res = await hanaFetch(`/api/agents/${targetId}`, { method: 'DELETE' });
       const data = await res.json();

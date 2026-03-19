@@ -17,6 +17,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { t } from "../i18n.js";
+import { MAX_AUDIO_BYTES, MAX_VIDEO_BYTES, isAudioFilename, isVideoFilename } from "../../lib/media-limits.js";
 
 const MAX_FILES = 9;
 
@@ -101,6 +102,21 @@ export default async function uploadRoute(app, { engine }) {
         const name = path.basename(srcPath);
         const timestamp = Date.now().toString(36);
         const isDir = stat.isDirectory();
+
+        if (!isDir && isVideoFilename(name) && stat.size > MAX_VIDEO_BYTES) {
+          results.push({
+            src: srcPath,
+            error: t("error.videoTooLarge"),
+          });
+          continue;
+        }
+        if (!isDir && isAudioFilename(name) && stat.size > MAX_AUDIO_BYTES) {
+          results.push({
+            src: srcPath,
+            error: t("error.audioTooLarge"),
+          });
+          continue;
+        }
 
         // 统一命名：原名_时间戳（文件保留扩展名）
         const ext = isDir ? "" : path.extname(srcPath);

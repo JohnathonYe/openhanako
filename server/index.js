@@ -23,6 +23,7 @@ import { initDebugLog } from "../lib/debug-log.js";
 setMaxListeners(50);
 
 import { loadLocale } from "./i18n.js";
+import { MAX_WS_MESSAGE_BYTES } from "../lib/media-limits.js";
 import chatRoute from "./routes/chat.js";
 import sessionsRoute from "./routes/sessions.js";
 import modelsRoute from "./routes/models.js";
@@ -143,8 +144,10 @@ app.addHook("onRequest", (req, reply, done) => {
   done();
 });
 
-// WebSocket 支持
-await app.register(websocket);
+// WebSocket 支持（提高单帧上限，避免多图/视频 Base64 整包被 ws 静默丢弃）
+await app.register(websocket, {
+  options: { maxPayload: MAX_WS_MESSAGE_BYTES },
+});
 
 // ── 外部平台接入管理器 ──
 const bridgeManager = new BridgeManager({ engine, hub });

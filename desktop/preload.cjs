@@ -5,6 +5,7 @@
  * IPC 仅用于：窗口管理、系统对话框、跨窗口消息转发。
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { pathToFileURL } = require("node:url");
 
 function resolveTheme() {
   const saved = localStorage.getItem("hana-theme") || "auto";
@@ -31,6 +32,15 @@ contextBridge.exposeInMainWorld("hana", {
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
   onFileChanged: (cb) => ipcRenderer.on("file-changed", (_, filePath) => cb(filePath)),
   readFileBase64: (path) => ipcRenderer.invoke("read-file-base64", path),
+  /** 将绝对路径转为 file:// URL，供无法在 http 页面直连本地文件时的回退 */
+  pathToFileURL: (p) => {
+    if (!p || typeof p !== "string") return "";
+    try {
+      return pathToFileURL(p).href;
+    } catch {
+      return "";
+    }
+  },
   readDocxHtml: (path) => ipcRenderer.invoke("read-docx-html", path),
   readXlsxHtml: (path) => ipcRenderer.invoke("read-xlsx-html", path),
   getFilePath: (file) => webUtils.getPathForFile(file),

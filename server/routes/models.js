@@ -13,6 +13,8 @@ export default async function modelsRoute(app, { engine }) {
         id: m.id,
         name: m.name || m.id,
         provider: m.provider,
+        baseUrl: m.baseUrl || "",
+        input: Array.isArray(m.input) ? m.input : ["text"],
         isCurrent: m.id === engine.currentModel?.id,
       }));
       return { models, current: engine.currentModel?.id || null };
@@ -34,6 +36,8 @@ export default async function modelsRoute(app, { engine }) {
           id,
           name: m?.name || id,
           provider: m?.provider || "",
+          baseUrl: m?.baseUrl || "",
+          input: m && Array.isArray(m.input) ? m.input : ["text"],
           isCurrent: id === engine.currentModel?.id,
           reasoning: m ? !!m.reasoning : false,
           xhigh: m ? supportsXhigh(m) : false,

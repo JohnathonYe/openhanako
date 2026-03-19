@@ -34,7 +34,7 @@
     "dist:win": "npm run build:renderer && electron-builder --win nsis",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "postinstall": "node scripts/apply-pi-multimodal-patches.cjs && electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.0",

@@ -32,7 +32,10 @@
     "deleteFailed": "Delete failed",
     "warningTitle": "About Channels",
     "warningBody": "I believe letting assistants with different memories and thinking styles interact can spark more inspiration, so I built a place where agents can talk to each other, even when you're away.\n\nPlease note that channels are experimental and may cause:\n1. Higher token usage\n2. Unexpected responses\n3. Memory confusion\n\nUse with caution",
-    "warningConfirm": "I understand, enable channels"
+    "warningConfirm": "I understand, enable channels",
+    "docTitle": "Channel document",
+    "docClose": "Close",
+    "docLoadError": "Failed to load document"
   },
   "sidebar": {
     "title": "Chats",
@@ -80,8 +83,24 @@
     "workspace": "Workspace: ",
     "selectWorkspace": "Select workspace",
     "planMode": "Use computer",
+    "planModeTooltipOn": "On — click to turn off",
+    "planModeTooltipOff": "Off — click to enable",
     "deskContext": "With desk context",
     "docContext": "With document",
+    "multimodal": "Image / video / voice",
+    "multimodalTitle": "On by default: media is sent upstream as multimodal; acceptance depends on the model and models.json \"input\". Turn off to send paths only and let the agent use read_file / ffmpeg etc. (skill: media-local-tools).",
+    "mediaPickerTitle": "Add image, video, or audio (max 5; image ≤10MB; video/audio ≤20MB)",
+    "mediaTooMany": "At most 5 images, videos, or audio clips at once",
+    "imageTooLarge": "Each image must be under 10MB",
+    "videoTooLarge": "Each video must be under 20MB",
+    "audioTooLarge": "Each audio clip must be under 20MB",
+    "modelMediaRemoved": "Removed attachments that the current model does not support",
+    "mediaInvalidType": "Only common images, mp4/webm/mov video, or common audio (mp3, wav, m4a, …)",
+    "mediaReadFailed": "Could not read the attachment as media data for the model; message not sent. Enable multimodal and ensure the file is readable, or turn it off to send the path only.",
+    "serializeFailed": "Failed to serialize message; attachments may be too large",
+    "payloadTooLarge": "Message exceeds the WebSocket size limit (often large video/audio/image Base64). Reduce attachments or turn off multimodal to send paths only.",
+    "notConnected": "Not connected to server",
+    "sendFailed": "Send failed: ",
     "thinkingLevel": {
       "off": "off",
       "auto": "auto",
@@ -355,6 +374,10 @@
       "namePlaceholder": "Give them a name",
       "cancel": "Cancel",
       "confirm": "Create",
+      "pleaseWait": "Please wait…",
+      "creating": "Creating agent…",
+      "switchingAfterCreate": "Switching to the new agent and loading settings — this may take a few seconds…",
+      "createdReady": "{name} is ready ✿",
       "nameRequired": "Please enter a name",
       "created": "{name} created ✿",
       "createFailed": "Create failed",
@@ -816,6 +839,11 @@
     "missingParam": "Missing {param} parameter",
     "invalidJson": "Request body must be a JSON object",
     "sessionNotFound": "Session file not found",
-    "stillStreaming": "{name} is still responding, please wait"
+    "stillStreaming": "{name} is still responding, please wait",
+    "videoTooLarge": "Each video must be under 20MB",
+    "audioTooLarge": "Each audio clip must be under 20MB",
+    "modelMediaNotSupported": "This model does not support this media type ({mime}). Add image, video, and/or audio to the model's \"input\" array in models.json.",
+    "mediaOmittedForModel": "Attached media was omitted because it is not declared for this model in models.json.",
+    "sessionMediaKindCached": "In this chat, this model already failed on this media type ({kinds}). Start a new chat to try again, or declare the capability in models.json \"input\"."
   }
 }
