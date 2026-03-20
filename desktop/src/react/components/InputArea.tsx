@@ -185,24 +185,34 @@ function InputAreaInner() {
   );
   const applyModelMediaCaps = Boolean(currentModelInfo?.id);
 
+  // Desk files for @ mentions
+  const deskFiles = useStore(s => s.deskFiles);
+  const deskBasePath = useStore(s => s.deskBasePath);
+  const deskCurrentPath = useStore(s => s.deskCurrentPath);
+
   // Local state
   const [inputText, setInputText] = useState('');
   const [planMode, setPlanMode] = useState(false);
   const [sending, setSending] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashSelected, setSlashSelected] = useState(0);
-  const [slashBusy, setSlashBusy] = useState<string | null>(null); // command name while executing
+  const [slashBusy, setSlashBusy] = useState<string | null>(null);
+  const [atMenuOpen, setAtMenuOpen] = useState(false);
+  const [atSelected, setAtSelected] = useState(0);
+  const [atQuery, setAtQuery] = useState('');
+  const [atStartPos, setAtStartPos] = useState(-1);
+  const [mentionedFiles, setMentionedFiles] = useState<Array<{ name: string; path: string }>>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaFileInputRef = useRef<HTMLInputElement>(null);
   const isComposing = useRef(false);
 
-  /** 默认开启：图片/视频以 Base64 走模型多模态；仅当用户显式关闭时 localStorage 为 '0' */
+  /** 默认关闭：需用户按下开关后 localStorage 写 '1' 才启用多模态 */
   const [multimodalToModel, setMultimodalToModel] = useState(() => {
     try {
-      return localStorage.getItem(MULTIMODAL_STORAGE_KEY) !== '0';
+      return localStorage.getItem(MULTIMODAL_STORAGE_KEY) === '1';
     } catch {
-      return true;
+      return false;
     }
   });
 
@@ -221,6 +231,24 @@ function InputAreaInner() {
     return { path: art.filePath, name: art.title || art.filePath.split('/').pop() || '' };
   }, [previewOpen, currentArtifactId, artifacts]);
   const hasDoc = !!currentDoc;
+
+  // @ mention: resolve desk file → full path
+  const resolveDeskPath = useCallback((name: string) => {
+    if (!deskBasePath) return null;
+    return deskCurrentPath
+      ? `${deskBasePath}/${deskCurrentPath}/${name}`
+      : `${deskBasePath}/${name}`;
+  }, [deskBasePath, deskCurrentPath]);
+
+  // @ mention: filtered file list
+  const atFilteredFiles = useMemo(() => {
+    if (!atMenuOpen || !deskFiles.length) return [];
+    const q = atQuery.toLowerCase();
+    const matched = q
+      ? deskFiles.filter(f => f.name.toLowerCase().includes(q))
+      : deskFiles;
+    return matched.slice(0, 12);
+  }, [atMenuOpen, atQuery, deskFiles]);
 
   // ── 统一命令发送 ──
 
@@ -299,16 +327,84 @@ function InputAreaInner() {
     return slashCommands.filter(c => c.name.startsWith(query));
   }, [inputText, slashCommands]);
 
-  // 输入 / 时打开菜单
-  const handleInputChange = useCallback((value: string) => {
+  // @ mention: select file → insert @filename inline, track path
+  const pendingCursorPos = useRef<number | null>(null);
+
+  const handleAtSelect = useCallback((file: { name: string; isDir: boolean }) => {
+    const fullPath = resolveDeskPath(file.name);
+    if (!fullPath) return;
+
+    const before = inputText.slice(0, atStartPos);
+    const after = inputText.slice(atStartPos + 1 + atQuery.length);
+    const tag = `@${file.name} `;
+    const newText = before + tag + after;
+
+    pendingCursorPos.current = before.length + tag.length;
+    setInputText(newText);
+    setMentionedFiles(prev => {
+      if (prev.some(f => f.path === fullPath)) return prev;
+      return [...prev, { name: file.name, path: fullPath }];
+    });
+    setAtMenuOpen(false);
+    setAtQuery('');
+    setAtStartPos(-1);
+  }, [inputText, atStartPos, atQuery, resolveDeskPath]);
+
+  // Restore cursor after React flushes the new inputText to the textarea
+  useEffect(() => {
+    if (pendingCursorPos.current !== null) {
+      const el = textareaRef.current;
+      if (el) {
+        const pos = pendingCursorPos.current;
+        el.focus();
+        el.setSelectionRange(pos, pos);
+      }
+      pendingCursorPos.current = null;
+    }
+  }, [inputText]);
+
+  // 输入 / 或 @ 时打开菜单
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    const cursorPos = e.target.selectionStart;
     setInputText(value);
+
+    // slash commands
     if (value.startsWith('/') && value.length <= 20) {
       setSlashMenuOpen(true);
       setSlashSelected(0);
     } else {
       setSlashMenuOpen(false);
     }
-  }, []);
+
+    // @ mention detection: find the last '@' preceded by start-of-string or whitespace
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atMatch = textBeforeCursor.match(/(^|[\s])@([^\s]*)$/);
+    if (atMatch && deskFiles.length > 0) {
+      const startIdx = textBeforeCursor.length - atMatch[2].length - 1;
+      setAtStartPos(startIdx);
+      setAtQuery(atMatch[2]);
+      setAtMenuOpen(true);
+      setAtSelected(0);
+    } else {
+      setAtMenuOpen(false);
+      setAtQuery('');
+      setAtStartPos(-1);
+    }
+  }, [deskFiles.length]);
+
+  // @ mention: set of tracked names (for mirror highlighting)
+  const mentionedNames = useMemo(
+    () => new Set(mentionedFiles.map(f => f.name)),
+    [mentionedFiles],
+  );
+
+  // @ mention: remove stale entries when user deletes @name from text
+  useEffect(() => {
+    if (mentionedFiles.length === 0) return;
+    const still = mentionedFiles.filter(f => inputText.includes(`@${f.name}`));
+    if (still.length !== mentionedFiles.length) setMentionedFiles(still);
+  }, [inputText, mentionedFiles]);
 
   // Can send?
   const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached;
@@ -339,7 +435,7 @@ function InputAreaInner() {
     });
   }, []);
 
-  // ── 剪贴板图片/视频/语音：默认始终可粘贴，是否发给模型由「看图/视频/语音」开关决定 ──
+  // ── 剪贴板图片/视频/语音：始终可粘贴，是否发给模型由「看图/视频/语音」开关决定（默认关闭）──
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
     if (!items?.length) return;
@@ -576,6 +672,12 @@ function InputAreaInner() {
       const otherFiles = hasFiles ? attachedFiles.filter(f => !isMediaAttachment(f)) : [];
 
       let finalText = text;
+      // @ mentions: replace @filename with full path inline
+      for (const mf of mentionedFiles) {
+        if (finalText.includes(`@${mf.name}`)) {
+          finalText = finalText.split(`@${mf.name}`).join(mf.path);
+        }
+      }
       const pathParts: string[] = [
         ...otherFiles.map(f => (f.isDirectory ? `[目录] ${f.path}` : `[附件] ${f.path}`)),
         ...pathOnlyMedia.map(f => `[附件] ${f.path}`),
@@ -765,10 +867,11 @@ function InputAreaInner() {
       _cr().addUserMessage(text, allFiles.length > 0 ? allFiles : null, null);
       setInputText('');
       clearAttachedFiles();
+      setMentionedFiles([]);
     } finally {
       setSending(false);
     }
-  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, t]);
+  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, t]);
 
   // ── Steer (插话) ──
   const handleSteer = useCallback(() => {
@@ -794,6 +897,30 @@ function InputAreaInner() {
 
   // ── Key handler ──
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // @ 菜单导航
+    if (atMenuOpen && atFilteredFiles.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setAtSelected(i => (i + 1) % atFilteredFiles.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setAtSelected(i => (i - 1 + atFilteredFiles.length) % atFilteredFiles.length);
+        return;
+      }
+      if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const file = atFilteredFiles[atSelected];
+        if (file) handleAtSelect(file);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setAtMenuOpen(false);
+        return;
+      }
+    }
     // 斜杠菜单导航
     if (slashMenuOpen && filteredCommands.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -826,7 +953,7 @@ function InputAreaInner() {
         handleSend();
       }
     }
-  }, [handleSend, handleSteer, isStreaming, inputText, slashMenuOpen, filteredCommands, slashSelected]);
+  }, [handleSend, handleSteer, isStreaming, inputText, slashMenuOpen, filteredCommands, slashSelected, atMenuOpen, atFilteredFiles, atSelected, handleAtSelect]);
 
   return (
     <>
@@ -839,6 +966,15 @@ function InputAreaInner() {
           busy={slashBusy}
           onSelect={(cmd) => cmd.execute()}
           onHover={(i) => setSlashSelected(i)}
+        />
+      )}
+
+      {atMenuOpen && atFilteredFiles.length > 0 && (
+        <AtMentionMenu
+          files={atFilteredFiles}
+          selected={atSelected}
+          onSelect={handleAtSelect}
+          onHover={(i) => setAtSelected(i)}
         />
       )}
 
@@ -856,20 +992,23 @@ function InputAreaInner() {
             onRemove={removeAttachedFile}
           />
         )}
-        <textarea
-          ref={textareaRef}
-          id="inputBox"
-          className="input-box"
-          placeholder={placeholder}
-          rows={1}
-          spellCheck={false}
-          value={inputText}
-          onChange={e => handleInputChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          onCompositionStart={() => { isComposing.current = true; }}
-          onCompositionEnd={() => { isComposing.current = false; }}
-        />
+        <div className="input-mirror-container">
+          <MentionMirror text={inputText} mentionNames={mentionedNames} />
+          <textarea
+            ref={textareaRef}
+            id="inputBox"
+            className={'input-box' + (mentionedFiles.length > 0 ? ' has-mentions' : '')}
+            placeholder={placeholder}
+            rows={1}
+            spellCheck={false}
+            value={inputText}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onCompositionStart={() => { isComposing.current = true; }}
+            onCompositionEnd={() => { isComposing.current = false; }}
+          />
+        </div>
 
         <div className="input-bottom-bar">
           <div className="input-actions">
@@ -1085,11 +1224,15 @@ function MultimodalToggleButton({ enabled, onToggle }: {
 }) {
   const { t } = useI18n();
 
+  const title = enabled
+    ? tSafe(t, 'input.multimodalTooltipOn', '已启动（点击关闭）')
+    : tSafe(t, 'input.multimodalTooltipOff', '未启动（点击开启）');
+
   return (
     <button
       type="button"
       className={'multimodal-toggle-btn' + (enabled ? ' active' : '')}
-      title={tSafe(t, 'input.multimodalTitle', '开启后将图片/视频/语音作为模型输入（部分模型不支持）')}
+      title={title}
       onClick={onToggle}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -1279,6 +1422,76 @@ function SlashCommandMenu({ commands, selected, busy, onSelect, onHover }: {
           <span className="slash-menu-icon" dangerouslySetInnerHTML={{ __html: cmd.icon }} />
           <span className="slash-menu-label">{cmd.label}</span>
           <span className="slash-menu-desc">{cmd.description}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── Mention Mirror (overlay that renders @name as inline tags) ──
+
+function MentionMirror({ text, mentionNames }: { text: string; mentionNames: Set<string> }) {
+  if (mentionNames.size === 0) return null;
+
+  const parts: Array<{ key: string; text: string; isMention: boolean }> = [];
+  const sortedNames = [...mentionNames].sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(`@(${sortedNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g');
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  let ki = 0;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push({ key: `t${ki++}`, text: text.slice(lastIdx, match.index), isMention: false });
+    }
+    parts.push({ key: `m${ki++}`, text: match[0], isMention: true });
+    lastIdx = match.index + match[0].length;
+  }
+  if (lastIdx < text.length) {
+    parts.push({ key: `t${ki++}`, text: text.slice(lastIdx), isMention: false });
+  }
+
+  return (
+    <div className="input-mirror" aria-hidden="true">
+      {parts.map(p =>
+        p.isMention
+          ? <span key={p.key} className="mirror-mention">{p.text}</span>
+          : <span key={p.key}>{p.text}</span>,
+      )}
+      {/* trailing space keeps height in sync with textarea */}
+      <span>{' '}</span>
+    </div>
+  );
+}
+
+// ── @ Mention Menu ──
+
+function AtMentionMenu({ files, selected, onSelect, onHover }: {
+  files: Array<{ name: string; isDir: boolean }>;
+  selected: number;
+  onSelect: (file: { name: string; isDir: boolean }) => void;
+  onHover: (i: number) => void;
+}) {
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = listRef.current?.children[selected] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
+  return (
+    <div className="at-mention-menu" ref={listRef}>
+      {files.map((f, i) => (
+        <button
+          key={f.name}
+          className={'at-mention-item' + (i === selected ? ' selected' : '')}
+          onMouseEnter={() => onHover(i)}
+          onMouseDown={(e) => { e.preventDefault(); onSelect(f); }}
+        >
+          <span className="at-mention-icon" dangerouslySetInnerHTML={{
+            __html: f.isDir
+              ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+              : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+          }} />
+          <span className="at-mention-name">{f.name}</span>
         </button>
       ))}
     </div>

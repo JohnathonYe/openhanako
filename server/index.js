@@ -190,7 +190,7 @@ app.post("/api/log", async (req) => {
   return { ok: true };
 });
 
-// Plan Mode（只读探索模式）
+// 操作电脑（ON = 全部工具解锁，OFF = 只读 + 无浏览器控制）
 app.get("/api/plan-mode", async () => ({ enabled: engine.planMode }));
 app.post("/api/plan-mode", async (req) => {
   const { enabled } = req.body || {};

@@ -270,7 +270,7 @@ export class ConfigCoordinator {
     }
   }
 
-  // ── Plan Mode ──
+  // ── 操作电脑（ON = 全部工具解锁，OFF = 只读 + 无浏览器控制）──
 
   setPlanMode(enabled, allBuiltInTools) {
     this._planMode = !!enabled;
@@ -279,18 +279,18 @@ export class ConfigCoordinator {
     const agent = this._d.getAgent();
 
     if (this._planMode) {
-      const customNames = (agent.tools || []).map(t => t.name);
-      session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames]);
-    } else {
       const allNames = allBuiltInTools.map(t => t.name);
+      const customNames = (agent.tools || []).map(t => t.name);
+      session.setActiveToolsByName([...allNames, ...customNames]);
+    } else {
       const customNames = (agent.tools || [])
         .map(t => t.name)
         .filter((name) => !PLAN_MODE_ONLY_CUSTOM_TOOLS.includes(name));
-      session.setActiveToolsByName([...allNames, ...customNames]);
+      session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames]);
     }
 
     this._d.emitEvent({ type: "plan_mode", enabled: this._planMode }, null);
-    this._d.emitDevLog(`Plan Mode: ${this._planMode ? "ON (只读)" : "OFF (正常)"}`, "info");
+    this._d.emitDevLog(`操作电脑: ${this._planMode ? "ON (全部工具)" : "OFF (只读)"}`, "info");
   }
 
   // ── updateConfig ──

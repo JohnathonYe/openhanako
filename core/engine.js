@@ -608,8 +608,8 @@ export class HanaEngine {
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     log(`✿ 沙盒${sandboxEnabled ? "已启用" : "已关闭"}`);
 
-    // 9. 「操作电脑」每期进程启动默认关闭（若已有 session 则同步工具列表并广播）
-    this.setPlanMode(false);
+    // 9. 「操作电脑」每期进程启动默认开启（若已有 session 则同步工具列表并广播）
+    this.setPlanMode(true);
 
     const totalTime = ((Date.now() - startupTimer) / 1000).toFixed(1);
     log(`✿ 初始化完成（${totalTime}s）`);
