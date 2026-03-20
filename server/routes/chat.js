@@ -6,7 +6,7 @@
  */
 import { MoodParser, XingParser, ThinkTagParser } from "../../core/events.js";
 import { wsSend, wsParse } from "../ws-protocol.js";
-import { createModuleLogger, debugLog } from "../../lib/debug-log.js";
+import { createModuleLogger, debugLog, previewForLog } from "../../lib/debug-log.js";
 import { getLocale, t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
 import {
@@ -88,6 +88,47 @@ function extractText(content) {
     .join("");
 }
 
+/** 会话路径尾部，便于日志对齐且不暴露完整 home 路径 */
+function sessionPathTail(p, max = 56) {
+  if (!p || typeof p !== "string") return "(none)";
+  return p.length <= max ? p : `…${p.slice(-max)}`;
+}
+
+/** 统计本轮已记入 ss.events 的流式事件（turn_end 写入前调用） */
+function summarizeWsStreamForDiag(ss) {
+  let textDeltas = 0;
+  let textChars = 0;
+  let thinkingChars = 0;
+  let toolStarts = 0;
+  let moodTextChars = 0;
+  let xingTextChars = 0;
+  for (const e of ss.events || []) {
+    const ev = e?.event;
+    if (!ev?.type) continue;
+    switch (ev.type) {
+      case "text_delta":
+        textDeltas++;
+        textChars += String(ev.delta || "").length;
+        break;
+      case "thinking_delta":
+        thinkingChars += String(ev.delta || "").length;
+        break;
+      case "tool_start":
+        toolStarts++;
+        break;
+      case "mood_text":
+        moodTextChars += String(ev.delta || "").length;
+        break;
+      case "xing_text":
+        xingTextChars += String(ev.delta || "").length;
+        break;
+      default:
+        break;
+    }
+  }
+  return { textDeltas, textChars, thinkingChars, toolStarts, moodTextChars, xingTextChars };
+}
+
 export default async function chatRoute(app, { engine, hub }) {
   let activeWsClients = 0;
   let disconnectAbortTimer = null;
@@ -140,6 +181,12 @@ export default async function chatRoute(app, { engine, hub }) {
         titlePreview: "",
         /** 最近一条带附件的 user prompt 的媒体大类，用于流式 error 时写入拒绝缓存 */
         lastPromptMediaKinds: null,
+        /** 最近一轮 turn_end 诊断 */
+        lastTurnDiag: null,
+        /** 最近一轮是否为空流（且无明确 error 事件） */
+        lastTurnEmptyNoError: false,
+        /** 最近一轮是否出现 message_update.error */
+        lastTurnHadError: false,
         ...createSessionStreamState(),
       });
     }
@@ -185,6 +232,16 @@ export default async function chatRoute(app, { engine, hub }) {
         streamId: entry.streamId,
         seq: entry.seq,
       });
+    } else if (
+      event.type === "text_delta"
+      && String(event.delta || "").length > 0
+      && !ss._streamDiagInactiveWarned
+    ) {
+      ss._streamDiagInactiveWarned = true;
+      debugLog()?.warn(
+        "ws",
+        `text_delta dropped (not current session): got=${sessionPathTail(sessionPath)} current=${sessionPathTail(engine.currentSessionPath)} deltaChars=${String(event.delta || "").length}`,
+      );
     }
     return entry;
   }
@@ -292,6 +349,7 @@ export default async function chatRoute(app, { engine, hub }) {
         // 不在这里关闭 thinking 状态
       } else if (sub === "error") {
         const errText = event.assistantMessageEvent.error || "Unknown error";
+        if (ss) ss.lastTurnHadError = true;
         if (
           looksLikeProviderRejectedMultimodal(errText) &&
           ss?.lastPromptMediaKinds?.length &&
@@ -483,6 +541,10 @@ export default async function chatRoute(app, { engine, hub }) {
         }
       });
 
+      const diag = summarizeWsStreamForDiag(ss);
+      const tail = sessionPathTail(sessionPath);
+      const diagStr = `path=${tail} textΔ=${diag.textDeltas} textChars=${diag.textChars} thinkingChars=${diag.thinkingChars} tools=${diag.toolStarts} moodChars=${diag.moodTextChars} xingChars=${diag.xingTextChars} titlePreview=${(ss.titlePreview || "").length} events=${ss.events?.length ?? 0}`;
+
       emitStreamEvent(sessionPath, ss, { type: "turn_end" });
       finishSessionStream(ss);
       ss.isThinking = false;
@@ -491,12 +553,36 @@ export default async function chatRoute(app, { engine, hub }) {
       ss.xingParser.reset();
 
       if (isActive) {
-        debugLog()?.log("ws", "assistant reply done");
+        debugLog()?.log("ws", `assistant reply done | ${diagStr}`);
+        const isEmptyNoError = (
+          diag.textChars === 0
+          && diag.moodTextChars === 0
+          && diag.xingTextChars === 0
+          && diag.toolStarts === 0
+          && diag.thinkingChars === 0
+          && !ss.lastTurnHadError
+        );
+        ss.lastTurnDiag = diag;
+        ss.lastTurnEmptyNoError = isEmptyNoError;
+        if (
+          diag.textChars === 0
+          && diag.moodTextChars === 0
+          && diag.xingTextChars === 0
+          && diag.toolStarts === 0
+        ) {
+          if (diag.thinkingChars > 0) {
+            debugLog()?.warn("ws", `assistant: no main/mood/xing/tools; only thinking (${diag.thinkingChars} chars) | ${diagStr}`);
+          } else {
+            debugLog()?.warn("ws", `assistant: empty stream (no text/thinking/tools) | ${diagStr}`);
+          }
+        }
         maybeGenerateFirstTurnTitle(sessionPath, ss);
         // 推迟到本轮 turn_end 收尾之后，避免与 Pi 会话收尾并发导致 sessionManager 为空
         setTimeout(() => {
           engine.applyPendingServiceHandoffIfAny?.().catch(() => {});
         }, 0);
+      } else {
+        debugLog()?.warn("ws", `turn_end non-active session | ${diagStr}`);
       }
     }
   });
@@ -639,13 +725,16 @@ export default async function chatRoute(app, { engine, hub }) {
           else if (hasAudio) promptText = "（听语音）";
           else promptText = "（看图）";
         }
-        debugLog()?.log("ws", `user message (${promptText.length} chars, ${msg.images?.length || 0} media)`);
         // 只检查当前活跃 session 是否在 streaming
         if (engine.isStreaming) {
           wsSend(ws, { type: "error", message: t("error.stillStreaming", { name: engine.agentName }) });
           return;
         }
         const promptSessionPath = engine.currentSessionPath;
+        debugLog()?.log(
+          "ws",
+          `user message (${promptText.length} chars, ${msg.images?.length || 0} media) session=${sessionPathTail(promptSessionPath)} wsClients=${activeWsClients} preview=${previewForLog(promptText, 120)}`,
+        );
         const ss = getState(promptSessionPath);
         const modelId = engine.currentModel?.id;
         const promptKinds = msg.images?.length ? mediaKindsFromPayloadImages(msg.images) : [];
@@ -670,9 +759,16 @@ export default async function chatRoute(app, { engine, hub }) {
           ss.xingParser.reset();
           ss.titleRequested = false;
           ss.titlePreview = "";
+          ss.lastTurnHadError = false;
+          ss.lastTurnEmptyNoError = false;
+          ss.lastTurnDiag = null;
           beginSessionStream(ss);
+          ss._streamDiagInactiveWarned = false;
           broadcast({ type: "status", isStreaming: true });
           await hub.send(promptText, msg.images ? { images: msg.images } : undefined);
+          if (ss.lastTurnEmptyNoError) {
+            wsSend(ws, { type: "error", message: t("error.emptyStreamNoOutput") });
+          }
           // prompt 完成时，只有仍在活跃 session 才发 status:false
           if (engine.currentSessionPath === promptSessionPath) {
             broadcast({ type: "status", isStreaming: false });

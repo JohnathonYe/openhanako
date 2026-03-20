@@ -128,6 +128,8 @@ export interface PlatformApi {
   openSkillViewer?(opts: { skillPath: string }): void;
   settingsChanged(event: string, payload?: unknown): void;
   onSettingsChanged(callback: (event: string, payload: unknown) => void): void;
+  getDebugWsClient?(): Promise<boolean>;
+  setDebugWsClient?(enabled: boolean): Promise<boolean>;
   onSwitchTab?(callback: (tab: string) => void): void;
   getFilePath?(file: File): string | null;
   startDrag?(filePaths: string | string[]): void;

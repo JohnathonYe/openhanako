@@ -416,7 +416,10 @@
       "updateAvailable": "New version available: v{{version}}",
       "updateDownload": "Download",
       "quitFullyDesc": "Closing the window only hides the app to the tray; the Server keeps running. To quit the app and stop the Server, use the button below.",
-      "quitFully": "Quit completely"
+      "quitFully": "Quit completely",
+      "diagTitle": "Diagnostics",
+      "debugWsLog": "Main window WebSocket debug logging",
+      "debugWsLogDesc": "When enabled, [hana-ws-client] appears in the Console tab of the main window Chromium Developer Tools — not in the text files under logs/. Open with macOS ⌥⌘I, Ctrl+Shift+I on Windows/Linux, or Tray → Open main window Developer Tools. Server [ws] lines are in ~/.hanako/logs/*.log (separate stream)."
     },
     "me": {
       "title": "Me",
@@ -661,6 +664,10 @@
       "noCredentials": "Please enter App ID and App Secret first",
       "readOnly": "Read-only mode",
       "readOnlyDesc": "Bridge bots can only read files, no writing or command execution",
+      "replyAgent": "Bridge assistant",
+      "replyAgentLabel": "Assistant for Telegram / Feishu / QQ",
+      "replyAgentSameAsMain": "Same as main window",
+      "replyAgentHint": "When unset, the assistant selected in the main window handles Bridge. When set, all Bridge traffic (your owner DMs, guest DMs, and group guest replies) uses this assistant’s sessions, model, tools, and public persona.",
       "howTo": "Setup Guide",
       "tutorialTitle": "Platform Setup Guide",
       "tutorialTgSteps": [
@@ -844,6 +851,7 @@
     "audioTooLarge": "Each audio clip must be under 20MB",
     "modelMediaNotSupported": "This model does not support this media type ({mime}). Add image, video, and/or audio to the model's \"input\" array in models.json.",
     "mediaOmittedForModel": "Attached media was omitted because it is not declared for this model in models.json.",
-    "sessionMediaKindCached": "In this chat, this model already failed on this media type ({kinds}). Start a new chat to try again, or declare the capability in models.json \"input\"."
+    "sessionMediaKindCached": "In this chat, this model already failed on this media type ({kinds}). Start a new chat to try again, or declare the capability in models.json \"input\".",
+    "emptyStreamNoOutput": "The model returned no output for this turn. It may be unavailable in your region or temporarily failing upstream. Please switch models and try again."
   }
 }

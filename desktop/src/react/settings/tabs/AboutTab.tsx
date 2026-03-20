@@ -6,12 +6,14 @@ import { loadSettingsConfig } from '../actions';
 import iconUrl from '../../../assets/Hanako.png';
 
 const hana = (window as any).hana;
+const platform = (window as any).platform;
 
 export function AboutTab() {
   const { settingsConfig } = useSettingsStore();
   const [version, setVersion] = useState('');
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<{ version: string; downloadUrl: string } | null>(null);
+  const [debugWsClient, setDebugWsClient] = useState(false);
 
   // 全权模式 easter egg：点击头像 5 次解锁
   const [devUnlocked, setDevUnlocked] = useState(false);
@@ -37,6 +39,7 @@ export function AboutTab() {
     hana?.checkUpdate?.().then((info: any) => {
       if (info?.version) setUpdateInfo(info);
     });
+    platform?.getDebugWsClient?.().then((on: boolean) => setDebugWsClient(!!on)).catch(() => {});
   }, []);
 
   return (
@@ -81,6 +84,31 @@ export function AboutTab() {
         <div className="about-row">
           <span className="about-label">{t('settings.about.copyright')}</span>
           <span className="about-value">&copy; 2026 liliMozi</span>
+        </div>
+      </section>
+
+      <section className="settings-section about-diag-section">
+        <h2 className="settings-section-title">{t('settings.about.diagTitle')}</h2>
+        <div className="tool-caps-group">
+          <div className="tool-caps-item">
+            <div className="tool-caps-label">
+              <span className="tool-caps-name">{t('settings.about.debugWsLog')}</span>
+              <span className="tool-caps-desc">
+                {t('settings.about.debugWsLogDesc')}
+              </span>
+            </div>
+            <Toggle
+              on={debugWsClient}
+              onChange={async (on) => {
+                setDebugWsClient(on);
+                try {
+                  await platform?.setDebugWsClient?.(on);
+                } catch {
+                  setDebugWsClient(!on);
+                }
+              }}
+            />
+          </div>
         </div>
       </section>
 

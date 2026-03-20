@@ -66,6 +66,13 @@
     openSettings: () => {},
     reloadMainWindow: () => location.reload(),
 
+    getDebugWsClient: async () => localStorage.getItem("HANA_DEBUG_WS") === "1",
+    setDebugWsClient: async (enabled) => {
+      if (enabled) localStorage.setItem("HANA_DEBUG_WS", "1");
+      else localStorage.removeItem("HANA_DEBUG_WS");
+      return true;
+    },
+
     // 设置通信 → Web 环境暂不支持跨窗口
     settingsChanged: () => {},
     onSettingsChanged: () => {},

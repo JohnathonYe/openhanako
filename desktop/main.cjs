@@ -371,6 +371,16 @@ function createTray() {
 
   const buildMenu = () => Menu.buildFromTemplate([
     { label: "显示 Hanako", click: () => showPrimaryWindow() },
+    {
+      label: "打开主窗口开发者工具",
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.openDevTools();
+        }
+      },
+    },
     { label: "设置", click: () => createSettingsWindow() },
     { type: "separator" },
     { label: "退出", click: () => { fullQuitRequested = true; isExitingServer = true; isQuitting = true; app.quit(); } },
@@ -1524,6 +1534,41 @@ ipcMain.handle("editor-close", () => {
   if (editorWindow && !editorWindow.isDestroyed()) {
     editorWindow.hide();
   }
+});
+
+// ── 桌面端杂项标志（设置窗口与主窗口 localStorage 不同步时，用文件 + IPC 统一） ──
+function desktopFlagsPath() {
+  return path.join(app.getPath("userData"), "desktop-flags.json");
+}
+
+function readDesktopFlags() {
+  try {
+    const raw = fs.readFileSync(desktopFlagsPath(), "utf8");
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDesktopFlags(obj) {
+  try {
+    fs.mkdirSync(path.dirname(desktopFlagsPath()), { recursive: true });
+    fs.writeFileSync(desktopFlagsPath(), JSON.stringify(obj, null, 2), "utf8");
+  } catch (e) {
+    console.error("[desktop-flags] write failed:", e.message);
+  }
+}
+
+ipcMain.handle("get-debug-ws-client", () => !!readDesktopFlags().debugWsClient);
+
+ipcMain.handle("set-debug-ws-client", (_event, enabled) => {
+  const next = { ...readDesktopFlags(), debugWsClient: !!enabled };
+  writeDesktopFlags(next);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-changed", "debug-ws-client", { enabled: !!enabled });
+  }
+  return true;
 });
 
 // 设置窗口 → 主窗口的消息转发

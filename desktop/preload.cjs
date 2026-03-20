@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld("hana", {
   debugOpenOnboardingPreview: () => ipcRenderer.invoke("debug-open-onboarding-preview"),
   // 设置窗口
   openSettings: (tab) => ipcRenderer.invoke("open-settings", tab, resolveTheme()),
+  getDebugWsClient: () => ipcRenderer.invoke("get-debug-ws-client"),
+  setDebugWsClient: (enabled) => ipcRenderer.invoke("set-debug-ws-client", !!enabled),
   settingsChanged: (type, data) => ipcRenderer.send("settings-changed", type, data),
   onSettingsChanged: (cb) => ipcRenderer.on("settings-changed", (_, type, data) => cb(type, data)),
   onSwitchTab: (cb) => ipcRenderer.on("settings-switch-tab", (_, tab) => cb(tab)),

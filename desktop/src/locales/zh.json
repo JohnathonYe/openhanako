@@ -416,7 +416,10 @@
       "updateAvailable": "有新版本可用：v{{version}}",
       "updateDownload": "下载",
       "quitFullyDesc": "关闭窗口后应用会最小化到托盘、Server 继续在后台运行。若需彻底退出应用并关闭 Server，请点击下方按钮。",
-      "quitFully": "完全退出"
+      "quitFully": "完全退出",
+      "diagTitle": "诊断",
+      "debugWsLog": "主窗口 WebSocket 调试输出",
+      "debugWsLogDesc": "开启后，[hana-ws-client] 出现在主聊天窗口里 Chromium 的「开发者工具」里的「Console / 控制台」面板，不是 logs 文件夹里的文本日志。打开方式：快捷键 macOS ⌥⌘I（Option+Command+I），Windows/Linux Ctrl+Shift+I；或托盘图标右键 → 打开主窗口开发者工具。服务端在 ~/.hanako/logs/*.log 里的 [ws] 与这里是两套输出，可对照排查。"
     },
     "me": {
       "title": "我",
@@ -661,6 +664,10 @@
       "noCredentials": "请先填写 App ID 和 App Secret",
       "readOnly": "只读模式",
       "readOnlyDesc": "外部平台的机器人只能读取文件，不能执行写入和命令操作",
+      "replyAgent": "Bridge 助手",
+      "replyAgentLabel": "Telegram / 飞书 / QQ 使用的助手",
+      "replyAgentSameAsMain": "与主窗口当前助手一致",
+      "replyAgentHint": "未选择时由主窗口当前选中的助手处理外部消息。指定后，本人私聊（owner）、访客私聊与群聊访客回复均使用该助手的会话目录、模型、工具与人格（含对外意识）。",
       "howTo": "如何接入？",
       "tutorialTitle": "平台接入教程",
       "tutorialTgSteps": [
@@ -844,6 +851,7 @@
     "audioTooLarge": "单条语音不得超过 20MB",
     "modelMediaNotSupported": "当前模型不支持此类媒体（{mime}）。请在 models.json 的 input 中加入 image、video 或 audio。",
     "mediaOmittedForModel": "所附媒体与当前模型在 models.json 中声明的能力不符，已省略。",
-    "sessionMediaKindCached": "本会话中该模型已确认不支持此类附件（{kinds}）。可新开对话再试，或在 models.json 的 input 中声明对应能力。"
+    "sessionMediaKindCached": "本会话中该模型已确认不支持此类附件（{kinds}）。可新开对话再试，或在 models.json 的 input 中声明对应能力。",
+    "emptyStreamNoOutput": "模型本轮未返回任何内容。可能是模型在当前地区不可用或上游临时故障，请切换模型后重试。"
   }
 }

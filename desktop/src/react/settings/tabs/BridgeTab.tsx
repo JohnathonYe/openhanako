@@ -13,13 +13,14 @@ interface BridgeStatus {
   whatsapp: any;
   qq: any;
   readOnly: boolean;
+  ownerAgentId?: string;
   knownUsers: { telegram?: any[]; feishu?: any[]; whatsapp?: any[]; qq?: any[] };
   owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string };
 }
 
 export function BridgeTab() {
   const store = useSettingsStore();
-  const { showToast } = store;
+  const { showToast, agents } = store;
   const [status, setStatus] = useState<BridgeStatus | null>(null);
 
   // Public Ishiki
@@ -159,6 +160,37 @@ export function BridgeTab() {
           {t('settings.bridge.howTo')}
         </span>
       </div>
+
+      <section className="settings-section">
+        <h2 className="settings-section-title">{t('settings.bridge.replyAgent')}</h2>
+        <div className="settings-field">
+          <label className="settings-field-label">{t('settings.bridge.replyAgentLabel')}</label>
+          <select
+            className="settings-input"
+            value={status?.ownerAgentId || ''}
+            onChange={async (e) => {
+              const v = e.target.value;
+              try {
+                await hanaFetch('/api/bridge/settings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ownerAgentId: v || null }),
+                });
+                showToast(t('settings.saved'), 'success');
+                await loadStatus();
+              } catch {
+                showToast(t('settings.saveFailed'), 'error');
+              }
+            }}
+          >
+            <option value="">{t('settings.bridge.replyAgentSameAsMain')}</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+            ))}
+          </select>
+          <span className="settings-field-hint">{t('settings.bridge.replyAgentHint')}</span>
+        </div>
+      </section>
 
       {/* Telegram */}
       <section className="settings-section">

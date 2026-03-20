@@ -37,6 +37,14 @@ alwaysApply: true
 
 - `HANA_DEBUG_LLM_PAYLOAD=1` — 在终端摘要打印发往 LLM 的 **openai-completions** 请求 `messages` 结构（`image_url` 仅显示 mime 与 base64 长度）。与 `npm start` 同用。
 - `HANA_DEBUG_CHANNEL_FORCE_REPLY=1` — 频道 **仅本地调试**：跳过 triage 的 YES/NO，并用简短单轮提示生成回复（仍走主会话模型）；若仍失败则回退一句固定话。用于验证「频道能出字」。
+- **主会话 WebSocket（桌面）**：**设置 → 关于 → 诊断** 打开「主窗口 WebSocket 调试输出」后，主窗口 **开发者工具 → Console** 会打印 `[hana-ws-client]`（**不是** `logs/*.log` 里的内容）。打开方式：托盘 **右键 → 打开主窗口开发者工具**，或快捷键 **⌥⌘I** / **Ctrl+Shift+I**。服务端 `[ws]` 仍在 `~/.hanako/logs`，可与控制台对照。开关持久化在 Electron `userData/desktop-flags.json`。
+
+## 排查日志（主会话 WS + 心跳）
+
+- 持久化：`~/.hanako/logs/*.log`
+- `[ws] user message` — 字数、媒体数、`session=` 路径尾、`wsClients=`、`preview=`（截断）
+- `[ws] assistant reply done | …` — `textChars` / `thinkingChars` / `tools` / `moodChars` / `xingChars` / `titlePreview` / `events`；若主界面无字可看是否 `text_delta dropped (not current session)` 或 `only thinking` / `empty stream`
+- `[heartbeat] beat skip` / `beat phase1` / `beat phase2` — 与聊天无关的定时巡检；`beat skip` 表示无工作台变化、无 overwatch、无笺任务，**不会**产生 `[ws] user message`
 
 ## 排查日志（频道）
 

@@ -43,6 +43,21 @@ let _wsResumeVersion = 0;
 let _streamResumeRebuildVersion = 0;
 let _streamResumeRebuildingFor: string | null = null;
 
+/** 与「设置 → 关于 → 主窗口 WebSocket 调试输出」共用键 HANA_DEBUG_WS（Electron 由主进程写入 userData/desktop-flags.json 并同步到主窗口 localStorage） */
+function wsClientDiagEnabled(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && localStorage.getItem('HANA_DEBUG_WS') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function wsClientDiag(msg: string, extra?: Record<string, unknown>): void {
+  if (!wsClientDiagEnabled()) return;
+  if (extra && Object.keys(extra).length) console.warn('[hana-ws-client]', msg, extra);
+  else console.warn('[hana-ws-client]', msg);
+}
+
 // ── Session 流元数据 ──
 
 function getSessionStreamMeta(sessionPath?: string): { streamId: string | null; lastSeq: number } | null {
@@ -172,6 +187,11 @@ async function rebuildCurrentSessionFromResume(msg: any): Promise<void> {
     if (state.currentSessionPath === sessionPath && state.ws?.readyState === WebSocket.OPEN && msg.isStreaming) {
       requestStreamResume(sessionPath);
     }
+    wsClientDiag('stream_resume rebuild done', {
+      events: (msg.events || []).length,
+      isStreaming: msg.isStreaming,
+      streamId: msg.streamId,
+    });
   } finally {
     if (myVersion === _streamResumeRebuildVersion && _streamResumeRebuildingFor === sessionPath) {
       _streamResumeRebuildingFor = null;
@@ -212,6 +232,11 @@ function replayStreamResume(msg: any): void {
   }
 
   applyStreamingStatus(msg.isStreaming);
+  wsClientDiag('stream_resume incremental', {
+    events: (msg.events || []).length,
+    isStreaming: msg.isStreaming,
+    streamId: msg.streamId,
+  });
 }
 
 // ── WebSocket 连接 ──
@@ -231,6 +256,7 @@ function connectWS(): void {
     state.connected = true;
     _wsRetryDelay = 1000;
     ctx.setStatus(t('status.connected'), true);
+    wsClientDiag('websocket open', { sessionPath: state.currentSessionPath || null });
 
     if (state.currentSessionPath && state.isStreaming) {
       const myVersion = ++_wsResumeVersion;
@@ -467,6 +493,11 @@ function handleServerMessage(msg: any): void {
     }
 
     case 'turn_end':
+      wsClientDiag('turn_end', {
+        sessionPath: msg.sessionPath,
+        streamId: msg.streamId,
+        seq: msg.seq,
+      });
       useStore.getState().setLastOutboundMediaKinds(null);
       // 必须封存整条 assistant 气泡（含工具组），不能只用 finishAssistantTurn：
       // handoff_service 触发的后续回合不走 WS prompt 的 status isStreaming:false，

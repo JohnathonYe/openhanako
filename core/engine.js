@@ -137,11 +137,14 @@ export class HanaEngine {
     // ── Bridge Session Manager ──
     this._bridge = new BridgeSessionManager({
       getAgent: () => this.agent,
+      getAgentById: (id) => this._agentMgr.getAgent(id),
+      getSkillsForAgent: (ag) => this._getSkillsForAgent(ag),
       getModelManager: () => this._models,
       getResourceLoader: () => this._resourceLoader,
       getPreferences: () => this._readPreferences(),
-      buildTools: (cwd) => this.buildTools(cwd),
+      buildTools: (cwd, ct, opts) => this.buildTools(cwd, ct, opts),
       getHomeCwd: () => this.homeCwd,
+      applyPendingHandoff: () => this.applyPendingServiceHandoffIfAny(),
     });
 
     // Pi SDK resources（init 时填充）
@@ -216,7 +219,7 @@ export class HanaEngine {
     this._handoffStreamingBroadcast = typeof fn === "function" ? fn : null;
   }
 
-  /** 在 WebSocket turn_end 后调用：切换 agent 并向新会话发送转交任务 */
+  /** 在 WebSocket turn_end 或 Bridge owner 轮结束后调用：切换 agent 并向新会话发送转交任务 */
   async applyPendingServiceHandoffIfAny() {
     const p = this._pendingServiceHandoff;
     if (!p) return;
@@ -345,9 +348,26 @@ export class HanaEngine {
   async switchSession(p) { return this._sessionCoord.switchSession(p); }
   async prompt(text, opts) { return this._sessionCoord.prompt(text, opts); }
 
-  /** 当前助手：收尾所有 Bridge 本人会话记忆（切换/关会话时由 SessionCoordinator 调用） */
+  /**
+   * Bridge（外部平台）实际使用的助手：preferences.bridge.ownerAgentId 指定，否则为当前主界面助手。
+   */
+  getBridgeAgent() {
+    const id = this._readPreferences()?.bridge?.ownerAgentId;
+    if (id && typeof id === "string" && id.trim()) {
+      const a = this._agentMgr.getAgent(id.trim());
+      if (a) return a;
+    }
+    return this.agent;
+  }
+
+  /** 当前助手 + Bridge 专用助手：收尾 Bridge 本人会话 JSONL（避免切主界面后漏刷 Bridge 助手） */
   async flushBridgeOwnerMemory() {
-    return this.agent?.flushBridgeOwnerMemory?.();
+    const ids = new Set([this.currentAgentId]);
+    const bid = this._readPreferences()?.bridge?.ownerAgentId;
+    if (bid && typeof bid === "string" && bid.trim()) ids.add(bid.trim());
+    for (const id of ids) {
+      await this._agentMgr.getAgent(id)?.flushBridgeOwnerMemory?.();
+    }
   }
   async abort() { return this._sessionCoord.abort(); }
   steer(text) { return this._sessionCoord.steer(text); }

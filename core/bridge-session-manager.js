@@ -25,16 +25,30 @@ const STEER_PREFIX = "（插话，无需 MOOD）\n";
 export class BridgeSessionManager {
   /**
    * @param {object} deps - 注入依赖（不持有 engine 引用）
-   * @param {() => object} deps.getAgent - 返回当前 agent（需 sessionDir, yuanPrompt）
+   * @param {() => object} deps.getAgent - 主界面当前 agent（未配置 bridge.ownerAgentId 时用于 Bridge）
+   * @param {(id: string) => object|null} deps.getAgentById
+   * @param {(ag: object) => object} deps.getSkillsForAgent - 与引擎 _getSkillsForAgent 一致
    * @param {() => import('./model-manager.js').ModelManager} deps.getModelManager
    * @param {() => object} deps.getResourceLoader
    * @param {() => object} deps.getPreferences
-   * @param {(cwd: string) => {tools: any[], customTools: any[]}} deps.buildTools
+   * @param {(cwd: string, customTools?: any[], opts?: object) => Promise<{tools: any[], customTools: any[]}>} deps.buildTools
    * @param {() => string} deps.getHomeCwd
+   * @param {() => Promise<void>} [deps.applyPendingHandoff] - owner 轮结束后应用 handoff_service 队列（与桌面 WS turn_end 对齐）
    */
   constructor(deps) {
     this._deps = deps;
     this._activeSessions = new Map();
+  }
+
+  /** preferences.bridge.ownerAgentId 指定则用之，否则 getAgent() */
+  _resolveBridgeAgent() {
+    const prefs = this._deps.getPreferences();
+    const id = prefs?.bridge?.ownerAgentId;
+    if (id && typeof id === "string" && id.trim()) {
+      const a = this._deps.getAgentById(id.trim());
+      if (a) return a;
+    }
+    return this._deps.getAgent();
   }
 
   /** 活跃 bridge sessions（供 bridge-manager abort 用） */
@@ -55,7 +69,7 @@ export class BridgeSessionManager {
 
   /** bridge 索引文件路径 */
   _indexPath() {
-    return path.join(this._deps.getAgent().sessionDir, "bridge", "bridge-sessions.json");
+    return path.join(this._resolveBridgeAgent().sessionDir, "bridge", "bridge-sessions.json");
   }
 
   /**
@@ -64,7 +78,7 @@ export class BridgeSessionManager {
    */
   reconcile() {
     const index = this.readIndex();
-    const bridgeDir = path.join(this._deps.getAgent().sessionDir, "bridge");
+    const bridgeDir = path.join(this._resolveBridgeAgent().sessionDir, "bridge");
     let cleaned = 0;
 
     for (const [sessionKey, raw] of Object.entries(index)) {
@@ -109,7 +123,7 @@ export class BridgeSessionManager {
    * @returns {Promise<string|null>} agent 的回复文本
    */
   async executeExternalMessage(prompt, sessionKey, meta, opts = {}) {
-    const agent = this._deps.getAgent();
+    const agent = this._resolveBridgeAgent();
     const mm = this._deps.getModelManager();
     const bridgeDir = path.join(agent.sessionDir, "bridge");
     const subDir = opts.guest ? "guests" : "owner";
@@ -169,12 +183,16 @@ export class BridgeSessionManager {
         const prefs = this._deps.getPreferences();
         const bridgeReadOnly = !!prefs.bridge?.readOnly;
         const bridgeCwd = homeCwd;
-        const { tools: baseTools, customTools: baseCustomTools } = await this._deps.buildTools(bridgeCwd);
+        const { tools: baseTools, customTools: baseCustomTools } = await this._deps.buildTools(
+          bridgeCwd,
+          agent.tools,
+          { agentDir: agent.agentDir },
+        );
 
         const bridgeTools = bridgeReadOnly
           ? baseTools.filter(t => READ_ONLY_BUILTIN_TOOLS.includes(t.name))
           : baseTools;
-        const safeCustomNames = ["search_memory", "web_search", "web_fetch", "present_files"];
+        const safeCustomNames = ["search_memory", "web_search", "web_fetch", "present_files", "handoff_service"];
         const bridgeCustomTools = bridgeReadOnly
           ? (baseCustomTools || []).filter(t => safeCustomNames.includes(t.name))
           : baseCustomTools;
@@ -189,10 +207,15 @@ export class BridgeSessionManager {
           throw new Error(`[bridge] agent "${agent.agentName}" 配置的模型 "${ownerModelId}" 不在可用列表中`);
         }
 
+        const baseRl = this._deps.getResourceLoader();
+        const ownerResourceLoader = Object.create(baseRl);
+        ownerResourceLoader.getSystemPrompt = () => agent.systemPrompt;
+        ownerResourceLoader.getSkills = () => this._deps.getSkillsForAgent(agent);
+
         sessionOpts = {
           model: ownerModel,
           thinkingLevel: mm.resolveThinkingLevel(prefs?.thinking_level || "auto"),
-          resourceLoader: this._deps.getResourceLoader(),
+          resourceLoader: ownerResourceLoader,
           tools: bridgeTools,
           customTools: bridgeCustomTools,
           settingsManager: this._createSettings(ownerModel),
@@ -228,12 +251,20 @@ export class BridgeSessionManager {
         // 与桌面 prompt 后 notifyTurn 对齐：滚动摘要、经验计数、每日检查
         if (!opts.guest) {
           const turnPath = session.sessionManager?.getSessionFile?.();
-          const ticker = this._deps.getAgent()?.memoryTicker;
+          const ticker = agent.memoryTicker;
           if (turnPath && ticker?.notifyTurn) ticker.notifyTurn(turnPath);
         }
       } finally {
         unsub?.();
         this._activeSessions.delete(sessionKey);
+      }
+
+      // handoff_service：与桌面主会话 turn_end 一样在本轮收尾后应用（Bridge 无 WS turn_end）
+      if (!opts.guest && this._deps.applyPendingHandoff) {
+        await new Promise((r) => setTimeout(r, 0));
+        try {
+          await this._deps.applyPendingHandoff();
+        } catch { /* applyPendingServiceHandoffIfAny 已自日志 */ }
       }
 
       // 更新索引 + 元数据
@@ -288,7 +319,7 @@ export class BridgeSessionManager {
         return false;
       }
 
-      const bridgeDir = path.join(this._deps.getAgent().sessionDir, "bridge");
+      const bridgeDir = path.join(this._resolveBridgeAgent().sessionDir, "bridge");
       const sessionPath = path.join(bridgeDir, existingFile);
       if (!fs.existsSync(sessionPath)) {
         console.warn(`[bridge-session] injectMessage: session 文件不存在: ${sessionPath}`);

@@ -358,6 +358,14 @@ async function init() {
     return;
   }
 
+  try {
+    if (platform.getDebugWsClient) {
+      const wsDbg = await platform.getDebugWsClient();
+      if (wsDbg) localStorage.setItem("HANA_DEBUG_WS", "1");
+      else localStorage.removeItem("HANA_DEBUG_WS");
+    }
+  } catch { /* noop */ }
+
   initModules();
 
   try {
@@ -482,6 +490,10 @@ async function init() {
         break;
       case "font-changed":
         setSerifFont(data.serif);
+        break;
+      case "debug-ws-client":
+        if (data?.enabled) localStorage.setItem("HANA_DEBUG_WS", "1");
+        else localStorage.removeItem("HANA_DEBUG_WS");
         break;
     }
   });
