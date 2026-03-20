@@ -37,14 +37,16 @@ import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
 const _knownModels = _require("../lib/known-models.json");
 
+const DEFAULT_CONTEXT_WINDOW = 128_000;
+
 function generateModelDefaults(modelId) {
   const known = _knownModels[modelId];
   const entry = {
     id: modelId,
     name: known?.name || humanizeName(modelId),
     input: ["text", "image"],
+    contextWindow: known?.context || DEFAULT_CONTEXT_WINDOW,
   };
-  if (known?.context) entry.contextWindow = known.context;
   if (known?.maxOutput) entry.maxTokens = known.maxOutput;
   return entry;
 }

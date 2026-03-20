@@ -2,7 +2,7 @@
  * AssistantMessage — 助手消息，遍历 ContentBlock 按类型渲染
  */
 
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { MarkdownContent } from './MarkdownContent';
 import { MoodBlock } from './MoodBlock';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -44,6 +44,19 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
 
   const blocks = message.blocks || [];
 
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    const textBlocks = blocks.filter((b): b is ContentBlock & { type: 'text' } => b.type === 'text');
+    if (textBlocks.length === 0) return;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = textBlocks.map(b => b.html).join('\n');
+    const text = tmp.innerText.trim();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  }, [blocks]);
+
   return (
     <div className="message-group assistant">
       {showAvatar && (
@@ -75,6 +88,17 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
         {blocks.map((block, i) => (
           <ContentBlockView key={i} block={block} agentName={displayName} yuan={displayYuan} />
         ))}
+        <button className={`msg-copy-btn${copied ? ' copied' : ''}`} onClick={handleCopy} title="复制文本">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            {copied
+              ? <polyline points="20 6 9 17 4 12" />
+              : <>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </>
+            }
+          </svg>
+        </button>
       </div>
     </div>
   );

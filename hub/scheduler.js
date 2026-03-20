@@ -24,7 +24,7 @@ export class Scheduler {
     this._hub = hub;
     this._heartbeat = null;
     this._agentCrons = new Map(); // agentId → CronScheduler
-    this._executingAgents = new Set(); // 正在执行 cron 的 agentId
+    this._executingJobs = new Map(); // jobId → AbortController（per-job 锁 + abort 控制）
   }
 
   /** @returns {import('../core/engine.js').HanaEngine} */
@@ -133,6 +133,10 @@ export class Scheduler {
     const sched = createCronScheduler({
       cronStore,
       executeJob: (job) => this._executeCronJobForAgent(agentId, job),
+      abortJob: (jobId) => {
+        const ac = this._executingJobs.get(jobId);
+        if (ac) { ac.abort(); console.log(`\x1b[90m[scheduler] cron abort ${jobId} (timeout)\x1b[0m`); }
+      },
       onJobDone: (job, result) => {
         this._hub.eventBus.emit(
           { type: "cron_job_done", jobId: job.id, label: job.label, agentId, result },
@@ -152,13 +156,15 @@ export class Scheduler {
    * 同一 agent 同时只运行一个 cron，防止并发写冲突
    */
   async _executeCronJobForAgent(agentId, job) {
-    if (this._executingAgents.has(agentId)) {
-      console.log(`\x1b[90m[scheduler] cron 跳过 ${agentId}/${job.id}：上一个任务仍在执行\x1b[0m`);
-      const err = new Error(`agent ${agentId} 正在执行另一个 cron，跳过 ${job.id}`);
+    // per-job 锁：同一 job 不并发，但同一 agent 的不同 job 可以并行
+    if (this._executingJobs.has(job.id)) {
+      console.log(`\x1b[90m[scheduler] cron 跳过 ${job.id}：上一次仍在执行\x1b[0m`);
+      const err = new Error(`cron job ${job.id} 仍在执行，跳过`);
       err.skipped = true;
       throw err;
     }
-    this._executingAgents.add(agentId);
+    const ac = new AbortController();
+    this._executingJobs.set(job.id, ac);
     try {
       const prompt = [
         `[定时任务 ${job.id}: ${job.label}]`,
@@ -170,9 +176,10 @@ export class Scheduler {
       ].join("\n");
       await this._executeActivityForAgent(agentId, prompt, "cron", job.label, {
         model: job.model || undefined,
+        signal: ac.signal,
       });
     } finally {
-      this._executingAgents.delete(agentId);
+      this._executingJobs.delete(job.id);
     }
   }
 
@@ -186,11 +193,13 @@ export class Scheduler {
     const startedAt = Date.now();
     const id = `${type === "heartbeat" ? "hb" : "cron"}_${startedAt}`;
 
-    // 所有 agent 统一走 executeIsolated（支持 agentId 参数）
+    // 所有 agent 统一走 executeIsolated（支持 agentId + signal 参数）
+    const { signal, ...restOpts } = opts;
     const result = await engine.executeIsolated(prompt, {
       agentId,
       persist: activityDir,
-      ...opts,
+      signal,
+      ...restOpts,
     });
     const { sessionPath, error } = result;
 

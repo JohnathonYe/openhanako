@@ -1990,7 +1990,26 @@ html[data-platform="linux"] .tb-toggle-right {
     font-size: 0.95rem;
     line-height: 1.75;
     word-break: break-word;
+    position: relative;
 }
+
+.msg-copy-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--hana-bg);
+    border: 1px solid var(--hana-border);
+    border-radius: 4px;
+    padding: 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    color: var(--hana-text-muted);
+    line-height: 1;
+}
+.message.assistant:hover .msg-copy-btn { opacity: 0.6; }
+.msg-copy-btn:hover { opacity: 1 !important; color: var(--hana-text); }
+.msg-copy-btn.copied { opacity: 1 !important; color: var(--hana-accent, #4a9); }
 
 /* ========================================
    Markdown 渲染内容
