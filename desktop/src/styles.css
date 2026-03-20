@@ -8875,6 +8875,31 @@ body.resizing .jian-sidebar-inner {
     margin-bottom: 0;
 }
 
+/* 列表：不用 inside —— 与 <li><p>…</p></li> 组合时 marker 会独占一行；用 outside + 左内边距即可 */
+.channel-msg-text ol,
+.channel-msg-text ul {
+    margin: 0.35em 0;
+    padding-left: 1.5em;
+    list-style-position: outside;
+}
+
+.channel-msg-text ol ol,
+.channel-msg-text ol ul,
+.channel-msg-text ul ol,
+.channel-msg-text ul ul {
+    margin: 0.2em 0;
+    padding-left: 1.25em;
+}
+
+.channel-msg-text li {
+    margin: 0.12em 0;
+}
+
+/* 松散列表里 li 仅有单个 p 时，避免块级 p 把 marker 与正文拆成两行（嵌套 ul 的 li 不用此规则） */
+.channel-msg-text li > p:only-child {
+    display: inline;
+}
+
 /* ── IM 气泡样式 ── */
 
 /* 他人消息：左侧气泡 */

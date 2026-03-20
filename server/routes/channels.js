@@ -14,7 +14,7 @@
 
 import fs from "fs";
 import path from "path";
-import { debugLog } from "../../lib/debug-log.js";
+import { debugLog, previewForLog } from "../../lib/debug-log.js";
 import {
   parseChannel,
   createChannel,
@@ -229,10 +229,20 @@ export default async function channelsRoute(app, { engine, hub }) {
         : { body: String(body).trim() };
       const result = appendMessage(filePath, senderName, storedBody);
 
-      debugLog()?.log("api", `POST /channels/${name}/messages`);
+      const rawLen = String(body).length;
+      const storedLen = String(storedBody).length;
+      const rawPreview = previewForLog(body, 500);
+
+      debugLog()?.log(
+        "api",
+        `POST /channels/${name}/messages sender=${senderName} ts=${result.timestamp} rawLen=${rawLen} storedLen=${storedLen} preview=${rawPreview}`,
+      );
 
       // 提取 @ 提及（用原文，长文里的 @ 也要触发 triage）
       const atMatches = String(body).match(/@(\S+)/g) || [];
+      if (atMatches.length) {
+        debugLog()?.log("api", `POST /channels/${name}/messages @tokens=${atMatches.join(",")}`);
+      }
       const mentionedAgents = [];
       if (atMatches.length > 0) {
         const meta = getChannelMeta(filePath);
@@ -249,9 +259,15 @@ export default async function channelsRoute(app, { engine, hub }) {
         }
       }
 
-      hub.triggerChannelTriage(name, { mentionedAgents })?.catch(err =>
-        console.error(`[channel] 触发立即 triage 失败: ${err.message}`)
+      debugLog()?.log(
+        "api",
+        `POST /channels/${name}/messages → triggerChannelTriage mentioned=[${mentionedAgents.join(",") || "all"}] (resolved ${mentionedAgents.length}/${atMatches.length} @ tokens)`,
       );
+
+      hub.triggerChannelTriage(name, { mentionedAgents })?.catch(err => {
+        console.error(`[channel] 触发立即 triage 失败: ${err.message}`);
+        debugLog()?.error("api", `triggerChannelTriage failed #${name}: ${err.message}`);
+      });
 
       return { ok: true, timestamp: result.timestamp, body: storedBody };
     } catch (err) {

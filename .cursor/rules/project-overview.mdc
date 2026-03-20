@@ -36,6 +36,14 @@ alwaysApply: true
 ## 调试环境变量
 
 - `HANA_DEBUG_LLM_PAYLOAD=1` — 在终端摘要打印发往 LLM 的 **openai-completions** 请求 `messages` 结构（`image_url` 仅显示 mime 与 base64 长度）。与 `npm start` 同用。
+- `HANA_DEBUG_CHANNEL_FORCE_REPLY=1` — 频道 **仅本地调试**：跳过 triage 的 YES/NO，并用简短单轮提示生成回复（仍走主会话模型）；若仍失败则回退一句固定话。用于验证「频道能出字」。
+
+## 排查日志（频道）
+
+- 持久化：`~/.hanako/logs/*.log`（每次启动一个新文件）
+- `[api]`：`POST /channels/.../messages` 含发送者、时间戳、正文长度与 **preview**（截断）、`@` 解析与 `triggerChannelTriage` 目标
+- `[channel]`：调度器是否启动、`triggerImmediate`、`_executeCheck` 的上下文 **contextPreview**、triage/回复结果
+- `[ticker]`：立即 triage 队列、agent 被跳过原因（无 bookmark / 窗口为空）、`getAgentOrder()` 为空
 
 ## 约定
 

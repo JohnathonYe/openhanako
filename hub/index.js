@@ -13,6 +13,7 @@
  */
 
 import path from "path";
+import { debugLog } from "../lib/debug-log.js";
 import { EventBus } from "./event-bus.js";
 import { ChannelRouter } from "./channel-router.js";
 import { GuestHandler } from "./guest-handler.js";
@@ -160,6 +161,8 @@ export class Hub {
     const channelEnabled = engine.agent.config?.channels?.enabled !== false;
     if (channelEnabled) {
       this._channelRouter.start();
+    } else {
+      debugLog()?.warn("channel", "ChannelRouter.start() skipped: agent config channels.enabled === false");
     }
 
     // 注入频道 post 回调

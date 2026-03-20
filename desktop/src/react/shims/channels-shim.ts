@@ -1222,8 +1222,17 @@ function initChannels(context: Record<string, any>): void {
 
   moveSlider(state().currentTab || 'chat', false);
 
+  // 与后端 channelTicker 对齐：localStorage 仅管 UI，须同步 hub.toggleChannels。
+  // 仅关同步 false 会导致「界面开着频道但 ticker 未起」（config 默认 channels.enabled: false）。
   if (_channelsEnabled) {
     loadChannels();
+    hanaFetch('/api/channels/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    }).catch((err) => {
+      console.error('[channels] toggle backend (init on) failed:', err);
+    });
   } else {
     hanaFetch('/api/channels/toggle', {
       method: 'POST',
