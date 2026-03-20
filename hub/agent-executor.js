@@ -13,6 +13,7 @@ import { createAgentSession, SessionManager } from "@mariozechner/pi-coding-agen
 import { streamSimple } from "@mariozechner/pi-ai";
 import { debugLog } from "../lib/debug-log.js";
 import { wrapStreamFnForInvokeXml } from "../core/stream-invoke-normalizer.js";
+import { runWithToolInvocationContext } from "../lib/tools/tool-invocation-context.js";
 
 /**
  * 以指定 agentId 的身份跑一次临时会话。
@@ -28,9 +29,37 @@ import { wrapStreamFnForInvokeXml } from "../core/stream-invoke-normalizer.js";
  * @param {boolean} [opts.noMemory=false] - 不注入记忆，只用 personality
  * @param {boolean} [opts.noTools=false] - 不注入工具
  * @param {boolean} [opts.readOnly=false] - 只读模式（只保留读取类工具，排除写/编辑/ask_agent/dm 等）
+ * @param {{ ephemeral?: boolean, channelName?: string }} [opts.invocationContext] - 与工具共享的调用上下文（默认合并 ephemeral: true）
  * @returns {Promise<string>}  capture 轮的输出（已去掉 MOOD 块）
  */
-export async function runAgentSession(agentId, rounds, { engine, signal, sessionSuffix = "temp", systemAppend, keepSession = false, noMemory = false, noTools = false, readOnly = false } = {}) {
+export async function runAgentSession(agentId, rounds, opts = {}) {
+  const {
+    engine,
+    signal,
+    sessionSuffix = "temp",
+    systemAppend,
+    keepSession = false,
+    noMemory = false,
+    noTools = false,
+    readOnly = false,
+    invocationContext = null,
+  } = opts;
+
+  const mergedInvocation = { ephemeral: true, ...(invocationContext || {}) };
+
+  return runWithToolInvocationContext(mergedInvocation, () => runAgentSessionBody(agentId, rounds, {
+    engine,
+    signal,
+    sessionSuffix,
+    systemAppend,
+    keepSession,
+    noMemory,
+    noTools,
+    readOnly,
+  }));
+}
+
+async function runAgentSessionBody(agentId, rounds, { engine, signal, sessionSuffix = "temp", systemAppend, keepSession = false, noMemory = false, noTools = false, readOnly = false }) {
   // 1. 从长驻 Map 获取 Agent 实例
   const agent = engine.getAgent(agentId);
   if (!agent) {

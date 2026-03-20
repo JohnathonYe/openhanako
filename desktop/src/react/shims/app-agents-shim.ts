@@ -52,12 +52,15 @@ function renderWelcomeAgentSelector(): void { /* React 负责 */ }
 
 // ── clearChat ──
 
-function clearChat(): void {
+function clearChat(opts?: { keepWelcomeHidden?: boolean }): void {
   const { state, messagesEl, renderTodoDisplay, resetScroll } = ctx;
   messagesEl.innerHTML = '';
-  state.welcomeVisible = true;
+  if (!opts?.keepWelcomeHidden) {
+    state.welcomeVisible = true;
+  }
   ctx._cr().finishAssistantMessage();
   state.lastRole = null;
+  state.lastHistoryAssistantId = undefined;
   state.memoryEnabled = true;
   resetScroll();
   state.sessionTodos = [];

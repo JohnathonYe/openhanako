@@ -109,6 +109,42 @@ describe("ChannelRouter._executeCheck reply pipeline", () => {
 
     expect(result.replied).toBe(true);
     expect(appendMessage).toHaveBeenCalledTimes(1);
-    expect(appendMessage.mock.calls[0][2]).toContain("在，我看到了");
+    expect(appendMessage.mock.calls[0][2]).toMatch(/在的|收到/);
+  });
+
+  it("定时 cycle：unread 里无用户发言且未 @ 本 agent 时不调用模型", async () => {
+    const { runAgentSession } = await import("../hub/agent-executor.js");
+    const router = createRouter();
+
+    const result = await router._executeCheck(
+      "hana",
+      "general",
+      [{ sender: "other", text: "闲聊" }],
+      [],
+      {
+        isScheduledCycle: true,
+        unreadSinceBookmark: [{ sender: "other", body: "我刚发了一句" }],
+      },
+    );
+
+    expect(result.replied).toBe(false);
+    expect(runAgentSession).not.toHaveBeenCalled();
+  });
+
+  it("未点名时模型输出敷衍短句不落盘", async () => {
+    const { appendMessage } = await import("../lib/channels/channel-store.js");
+    const { runAgentSession } = await import("../hub/agent-executor.js");
+    runAgentSession.mockResolvedValueOnce("嗯嗯");
+    const router = createRouter();
+
+    const result = await router._executeCheck(
+      "hana",
+      "general",
+      [{ sender: "user", text: "频道里近况如何" }],
+      [],
+    );
+
+    expect(result.replied).toBe(false);
+    expect(appendMessage).not.toHaveBeenCalled();
   });
 });

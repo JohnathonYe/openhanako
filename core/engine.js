@@ -157,6 +157,13 @@ export class HanaEngine {
 
     // 设置起始 agentId
     this._agentMgr.activeAgentId = startId;
+
+    /** handoff_service 工具在主聊天中排队，于本轮 turn_end 后切换 agent 并代为 prompt */
+    this._pendingServiceHandoff = null;
+    /** @type {((msg: object) => void) | null} WebSocket 广播，由 chat 路由注入 */
+    this._agentSwitchBroadcast = null;
+    /** handoff 触发的续写回合不经由 WS prompt，需单独广播 status 以同步 isStreaming */
+    this._handoffStreamingBroadcast = null;
   }
 
   // ════════════════════════════
@@ -179,6 +186,134 @@ export class HanaEngine {
   invalidateAgentListCache() { this._agentMgr.invalidateAgentListCache(); }
   async createAgent(opts) { return this._agentMgr.createAgent(opts); }
   async switchAgent(agentId) { return this._agentMgr.switchAgent(agentId); }
+  /** handoff：切主助手但保留当前 JSONL（同线程上下文） */
+  async switchAgentKeepSession(agentId) { return this._agentMgr.switchAgentKeepSession(agentId); }
+
+  /**
+   * 主聊天专用：排队在下一轮 turn 结束后切换服务对象并发送转交任务
+   * @param {{ agentId: string, task: string, fromAgentId?: string, fromAgentName?: string }|null} payload
+   */
+  setPendingServiceHandoff(payload) {
+    if (!payload?.agentId || typeof payload.task !== "string" || !String(payload.task).trim()) {
+      this._pendingServiceHandoff = null;
+      return;
+    }
+    this._pendingServiceHandoff = {
+      agentId: payload.agentId,
+      task: String(payload.task).trim(),
+      fromAgentId: payload.fromAgentId || null,
+      fromAgentName: payload.fromAgentName || null,
+    };
+  }
+
+  /** 由 server/routes/chat 注册，用于 handoff 后同步桌面当前助手与会话 */
+  setAgentSwitchBroadcast(fn) {
+    this._agentSwitchBroadcast = typeof fn === "function" ? fn : null;
+  }
+
+  /** @param {(streaming: boolean) => void} [fn] */
+  setHandoffStreamingBroadcast(fn) {
+    this._handoffStreamingBroadcast = typeof fn === "function" ? fn : null;
+  }
+
+  /** 在 WebSocket turn_end 后调用：切换 agent 并向新会话发送转交任务 */
+  async applyPendingServiceHandoffIfAny() {
+    const p = this._pendingServiceHandoff;
+    if (!p) return;
+    this._pendingServiceHandoff = null;
+    try {
+      const keepPath = this.currentSessionPath;
+      if (keepPath) {
+        await this.switchAgentKeepSession(p.agentId);
+        await this.reopenSessionAtPath(keepPath);
+      } else {
+        await this.switchAgent(p.agentId);
+        if (!this.session) await this.createSession();
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const toYuan = this.agent?.config?.agent?.yuan || "hanako";
+      try {
+        this._agentSwitchBroadcast?.({
+          type: "agent_switched",
+          agentId: this.currentAgentId,
+          agentName: this.agentName,
+          yuan: toYuan,
+          sessionPath: this.currentSessionPath,
+          handoff: {
+            fromAgentId: p.fromAgentId,
+            fromAgentName: p.fromAgentName || p.fromAgentId || "助手",
+            toAgentId: p.agentId,
+            toAgentName: this.agentName,
+            task: p.task.trim(),
+          },
+        });
+      } catch {}
+
+      const from = p.fromAgentName || p.fromAgentId || "另一位助手";
+      const task = p.task.trim();
+      const sess = this.session;
+      if (!sess) {
+        throw new Error("handoff: 切换后无活跃 session");
+      }
+
+      // 两段 custom 消息：
+      // 1) 可见转交说明（不触发回合）— 持久化到 JSONL 供历史回放
+      // 2) 不可见执行指令（触发回合）— 新助手以独立气泡回复
+      if (typeof sess.sendCustomMessage === "function") {
+        const handoffText =
+          `助手「${from}」向你转交：${task}\n\n` +
+          `请按你的身份直接对用户回应；不要复述或模仿用户口吻。`;
+
+        await sess.sendCustomMessage(
+          {
+            customType: "hana_handoff",
+            content: handoffText,
+            display: true,
+            details: {
+              fromAgentId: p.fromAgentId,
+              fromAgentName: p.fromAgentName,
+              toAgentId: p.agentId,
+              toAgentName: this.agentName,
+              task,
+            },
+          },
+          { triggerTurn: false },
+        );
+
+        this._handoffStreamingBroadcast?.(true);
+        try {
+          await sess.sendCustomMessage(
+            {
+              customType: "hana_handoff_instruction",
+              content: "请按转交事项直接对用户回应；不要复述或模仿用户口吻。",
+              display: false,
+              details: {
+                fromAgentId: p.fromAgentId,
+                fromAgentName: p.fromAgentName,
+                toAgentId: p.agentId,
+                task,
+              },
+            },
+            { triggerTurn: true },
+          );
+        } finally {
+          this._handoffStreamingBroadcast?.(false);
+        }
+      } else {
+        this._handoffStreamingBroadcast?.(true);
+        try {
+          await this.prompt(
+            `【助手「${from}」转交】\n事项：${task}\n\n请按你的身份完成，勿用用户口吻复述。`,
+          );
+        } finally {
+          this._handoffStreamingBroadcast?.(false);
+        }
+      }
+    } catch (err) {
+      console.error(`[engine] applyPendingServiceHandoffIfAny: ${err.message}`);
+    }
+  }
   async deleteAgent(agentId) { return this._agentMgr.deleteAgent(agentId); }
   setPrimaryAgent(agentId) { return this._agentMgr.setPrimaryAgent(agentId); }
   agentIdFromSessionPath(p) { return this._agentMgr.agentIdFromSessionPath(p); }
@@ -206,6 +341,7 @@ export class HanaEngine {
   get deskCwd() { return this._sessionCoord.session?.sessionManager?.getCwd?.() || this.homeCwd || null; }
 
   async createSession(mgr, cwd, mem) { return this._sessionCoord.createSession(mgr, cwd, mem); }
+  async reopenSessionAtPath(sessionPath) { return this._sessionCoord.reopenSessionAtPath(sessionPath); }
   async switchSession(p) { return this._sessionCoord.switchSession(p); }
   async prompt(text, opts) { return this._sessionCoord.prompt(text, opts); }
 
@@ -295,6 +431,19 @@ export class HanaEngine {
   saveBridgeIndex(i) { return this._bridge.writeIndex(i); }
   async executeExternalMessage(p, sk, m, o) { return this._bridge.executeExternalMessage(p, sk, m, o); }
   injectBridgeMessage(sk, t) { return this._bridge.injectMessage(sk, t); }
+
+  /**
+   * 向已对接社交平台上绑定的本人发送一条 IM（由 BridgeManager 校验 owner 与连接状态）。
+   * @param {string} platform - telegram | feishu | qq
+   * @param {string} [userId] - 省略则从 preferences.bridge.owner[platform] 使用；传入则须与配置一致
+   * @param {string} text
+   * @returns {Promise<{ ok: true, sent: true, platform: string, chatId: string, sessionKey: string } | { ok: false, reason?: string, error?: string }>}
+   */
+  async sendBridgeOwnerIm(platform, userId, text) {
+    const bm = this._hub?.bridgeManager;
+    if (!bm?.sendToOwner) return { ok: false, reason: "bridge_unavailable" };
+    return bm.sendToOwner(platform, userId, text);
+  }
 
   // ════════════════════════════
   //  Skills（→ SkillManager）

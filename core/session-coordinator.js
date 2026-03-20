@@ -140,17 +140,15 @@ export class SessionCoordinator {
   }
 
   async switchSession(sessionPath) {
-    const agent = this._d.getAgent();
-    const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
-    if (targetAgentId && targetAgentId !== this._d.getActiveAgentId()) {
-      await this.closeAllSessions();
-      await this._d.switchAgentOnly(targetAgentId);
-    }
+    // 不按「文件所在 agents/某 id/sessions」强制切换主助手：
+    // handoff 合并同一条 JSONL 后，文件仍在原助手目录，primary 已是转交目标；
+    // 若此处 switchAgentOnly(路径归属)，会把主助手切回 3 号，后续回复又变成 3 号。
+    // 打开会话始终以**当前** primary 重建 Pi session（与 reopenSessionAtPath / bridge 一致）。
+    // 用户若要换成「路径归属助手」的人格，请用界面切换主助手后再点该会话。
 
-    // 从 session-meta.json 恢复记忆开关
     let memoryEnabled = true;
     try {
-      const metaPath = path.join(this._d.getAgent().sessionDir, "session-meta.json");
+      const metaPath = path.join(path.dirname(sessionPath), "session-meta.json");
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
       const sessKey = path.basename(sessionPath);
       if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
@@ -164,7 +162,7 @@ export class SessionCoordinator {
     const existing = this._sessions.get(sessionPath);
     if (existing) {
       if (this._session && this._session !== existing.session) {
-        const oldSp = this._session.sessionManager?.getSessionFile?.();
+        const oldSp = this._session?.sessionManager?.getSessionFile?.();
         if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
       }
       this._session = existing.session;
@@ -174,10 +172,55 @@ export class SessionCoordinator {
 
     // 不在 map 中，先 flush 当前再新建
     if (this._session) {
-      const oldSp = this._session.sessionManager?.getSessionFile?.();
+      const oldSp = this._session?.sessionManager?.getSessionFile?.();
       if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
     }
-    const sessionMgr = SessionManager.open(sessionPath, this._d.getAgent()?.sessionDir);
+    const sessionDir = path.dirname(sessionPath);
+    const sessionMgr = SessionManager.open(sessionPath, sessionDir);
+    const cwd = sessionMgr.getCwd?.() || undefined;
+    return this.createSession(sessionMgr, cwd, memoryEnabled);
+  }
+
+  /**
+   * handoff 专用：在已 switchAgentOnly(目标) 后，用**同一** JSONL 路径重建 Pi session（模型可见完整历史）。
+   * sessionPath 可位于原助手目录下；SessionManager 使用文件所在目录为第二参数（与 bridge 一致）。
+   * @param {string} sessionPath
+   */
+  async reopenSessionAtPath(sessionPath) {
+    const agentsDir = this._d.agentsDir;
+    const resolved = path.resolve(sessionPath);
+    const base = path.resolve(agentsDir);
+    if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+      throw new Error("reopenSessionAtPath: 非法 session 路径");
+    }
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`reopenSessionAtPath: 文件不存在 ${resolved}`);
+    }
+
+    if (this._session) {
+      const oldSp = this._session?.sessionManager?.getSessionFile?.();
+      if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
+    }
+    for (const [, entry] of this._sessions) {
+      entry.unsub();
+    }
+    this._sessions.clear();
+    this._session = null;
+
+    let memoryEnabled = true;
+    try {
+      const metaPath = path.join(path.dirname(sessionPath), "session-meta.json");
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      const sessKey = path.basename(sessionPath);
+      if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        log.warn(`reopenSessionAtPath session-meta: ${err.message}`);
+      }
+    }
+
+    const sessionDir = path.dirname(sessionPath);
+    const sessionMgr = SessionManager.open(sessionPath, sessionDir);
     const cwd = sessionMgr.getCwd?.() || undefined;
     return this.createSession(sessionMgr, cwd, memoryEnabled);
   }
@@ -200,7 +243,7 @@ export class SessionCoordinator {
       );
     }
     await this._session.prompt(effectiveText, promptOpts);
-    const sp = this._session.sessionManager?.getSessionFile?.();
+    const sp = this._session?.sessionManager?.getSessionFile?.();
     if (sp) this._d.getAgent()?._memoryTicker?.notifyTurn(sp);
   }
 
@@ -235,7 +278,7 @@ export class SessionCoordinator {
   async closeAllSessions() {
     const agent = this._d.getAgent();
     if (this._session) {
-      const curSp = this._session.sessionManager?.getSessionFile?.();
+      const curSp = this._session?.sessionManager?.getSessionFile?.();
       if (curSp && agent?.memoryTicker?.notifySessionEnd) {
         await agent.memoryTicker.notifySessionEnd(curSp).catch(() => {});
       }

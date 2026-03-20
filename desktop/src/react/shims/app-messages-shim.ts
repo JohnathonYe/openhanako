@@ -6,6 +6,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { useStore } from '../stores';
+
 // ── i18n helper（全局注入） ──
 declare function t(key: string, vars?: Record<string, string>): any;
 
@@ -228,6 +230,7 @@ async function loadMessages(): Promise<void> {
 
     if (data.messages && data.messages.length > 0) {
       state.welcomeVisible = false;
+      state.lastHistoryAssistantId = undefined;
 
       const fileMap: Record<number, any[]> = {};
       const artMap: Record<number, any[]> = {};
@@ -263,7 +266,47 @@ async function loadMessages(): Promise<void> {
           ];
           _cr().addUserMessage(userText, mergedFiles.length ? mergedFiles : null, deskContext);
         } else if (m.role === 'assistant') {
+          const aid = (m as { assistantAgentId?: string }).assistantAgentId;
+          const aname = (m as { assistantAgentName?: string }).assistantAgentName;
+          const handoffFrom = (m as { handoffFrom?: string }).handoffFrom;
+          const handoffToAgentName = (m as { handoffToAgentName?: string }).handoffToAgentName;
+          const agents = useStore.getState().agents;
+          const agMeta = aid ? agents.find((a: { id: string }) => a.id === aid) : null;
+
+          // 转交标记消息：渲染为横条指示卡而非气泡
+          if (handoffFrom) {
+            const toName = handoffToAgentName || '';
+            const taskRaw = typeof m.content === 'string' ? m.content : '';
+            const taskMatch = taskRaw.match(/向你转交：([\s\S]*?)(?:\n\n|$)/);
+            const task = taskMatch ? taskMatch[1].trim() : '';
+            if (toName || task) {
+              _cr().renderHandoffNotice({
+                fromName: handoffFrom,
+                toName: toName || (aname || ''),
+                task,
+              });
+            }
+            continue;
+          }
+
+          if (aid && state.lastHistoryAssistantId !== aid) {
+            state.lastRole = null;
+            state.lastHistoryAssistantId = aid;
+          }
+
+          const prevSa = state.sessionAgent;
+          const prevName = state.agentName;
+          if (aid) {
+            state.sessionAgent = {
+              name: aname || agMeta?.name || aid,
+              yuan: agMeta?.yuan,
+            };
+          }
+
           const group = _cr().ensureGroup('assistant');
+          state.sessionAgent = prevSa;
+          state.agentName = prevName;
+
           const bubble = document.createElement('div');
           bubble.className = 'message assistant';
 

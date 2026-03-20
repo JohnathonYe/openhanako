@@ -28,6 +28,21 @@ function isChannelForceReplyDebug() {
   return process.env.HANA_DEBUG_CHANNEL_FORCE_REPLY === "1";
 }
 
+/** 未 @ 时若模型只输出敷衍短句，视为未发言（不落盘） */
+function isTrivialChannelFiller(text) {
+  const t = String(text || "").trim().replace(/\s+/g, "");
+  if (t.length === 0 || t.length > 24) return false;
+  if (/[?？]/.test(t)) return false;
+  // 常见无信息应答（含重复「嗯」）
+  if (/^(嗯{1,8}|嗯嗯+|好的|收到|好哒|好勒|在的|在呢|来啦|来了|okk?|ok)$/i.test(t)) return true;
+  if (/^(嗯[,，]?){1,4}(好|的|嗯)?$/i.test(t)) return true;
+  return false;
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[\\^$*+?.()|[\]{}]/g, "\\$&");
+}
+
 function parseChannelTimestamp(ts) {
   if (!ts) return null;
   const m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
@@ -168,6 +183,22 @@ export class ChannelRouter {
     return String(msg?.body ?? msg?.text ?? "").trim();
   }
 
+  /**
+   * 定时 cycle：bookmark 之后若没有用户新消息、也未 @ 本 agent，则视为无待办，不跑模型。
+   */
+  _shouldSkipScheduledCycle({ unreadSinceBookmark, agentId, agentName, ownerName }) {
+    if (!Array.isArray(unreadSinceBookmark) || unreadSinceBookmark.length === 0) return true;
+    const owner = ownerName || "user";
+    const atSelf = new RegExp(`@(?:${escapeRegExp(agentId)}|${escapeRegExp(agentName)})\\b`, "i");
+    for (const m of unreadSinceBookmark) {
+      const sender = m?.sender;
+      const body = this._extractBody(m);
+      if (sender === owner) return false;
+      if (atSelf.test(body)) return false;
+    }
+    return true;
+  }
+
   _shouldSuppressRapidFollowup({ recentMessages, agentId, agentName, isMentioned, asksEachMember }) {
     if (!Array.isArray(recentMessages) || recentMessages.length === 0) return false;
     if (isMentioned || asksEachMember) return false;
@@ -213,7 +244,12 @@ export class ChannelRouter {
    * 频道检查回调：轻量规则门控 → 单轮 Agent Session → 写入回复
    * 从 engine._executeChannelCheck 搬入
    */
-  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, { signal, mentionedAgents } = {}) {
+  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, {
+    signal,
+    mentionedAgents,
+    isScheduledCycle = false,
+    unreadSinceBookmark,
+  } = {}) {
     const engine = this._engine;
     const msgText = formatMessagesForLLM(newMessages);
     const recentChannelMessages = this._getRecentChannelMessages(channelName, 30);
@@ -223,6 +259,24 @@ export class ChannelRouter {
     );
 
     const { agentName } = this._getAgentProfile(agentId);
+    const ownerName = engine.userName || "user";
+
+    // 仅定时 cycle：bookmark 后无用户发言且未 @ 本 agent → 不跑模型，避免「每轮打卡」式刷屏
+    if (!isChannelForceReplyDebug() && isScheduledCycle) {
+      const skipCycle = this._shouldSkipScheduledCycle({
+        unreadSinceBookmark,
+        agentId,
+        agentName,
+        ownerName,
+      });
+      if (skipCycle) {
+        debugLog()?.log(
+          "channel",
+          `reply-gate ${agentId}/#${channelName}: NO (scheduled cycle, no pending owner/@ in unread)`,
+        );
+        return { replied: false };
+      }
+    }
 
     // ── 检测 @ ──
     const isMentionedInText =
@@ -310,7 +364,7 @@ export class ChannelRouter {
             capture: true,
           },
         ],
-        { engine, signal, sessionSuffix: "channel-temp" },
+        { engine, signal, sessionSuffix: "channel-temp", invocationContext: { channelName } },
       );
       const cleaned = typeof text === "string" ? text.trim() : "";
       if (!cleaned || cleaned.includes("[NO_REPLY]")) {
@@ -322,7 +376,7 @@ export class ChannelRouter {
     const dispatchMeta = [
       `被点名: ${isMentioned ? "yes" : "no"}`,
       `多人各自参与请求: ${asksEachMember ? "yes" : "no"}`,
-      "若没有新增价值可输出 [NO_REPLY]",
+      "若没有新增价值可输出 [NO_REPLY]；未被点名时不要只回「嗯/好的」等敷衍短句。",
     ].join(" | ");
 
     const text = await runAgentSession(
@@ -338,20 +392,26 @@ export class ChannelRouter {
             + "3) 不重复他人或你自己刚说过的话；无新增价值时输出 [NO_REPLY]。\n"
             + "4) 若被点名或用户要求大家各自回答，优先给出实质回应，不要装作没看见。\n"
             + "5) 信息不全时，先问一个关键澄清问题再推进。\n"
-            + "6) 不要输出角色标签、前缀或代码块；只输出正文，或 [NO_REPLY]。",
+            + "6) 不要输出角色标签、前缀或代码块；只输出正文，或 [NO_REPLY]。\n"
+            + "7) 未被点名时若只会敷衍应答，必须输出 [NO_REPLY]，不要凑字数。",
           capture: true,
         },
       ],
-      { engine, signal, sessionSuffix: "channel-temp" },
+      { engine, signal, sessionSuffix: "channel-temp", invocationContext: { channelName } },
     );
 
-    const cleaned = String(text || "").trim();
+    let cleaned = String(text || "").trim();
     if (!cleaned || cleaned.includes("[NO_REPLY]")) {
-      // 被点名/明确要各自回答时，尽量保证有可见回应，避免体验“喊了没反应”。
+      // 被点名/明确要各自回答时，尽量保证有可见回应，避免体验“喊了没反应”（避免无信息的「嗯嗯」）。
       if (isMentioned || asksEachMember) {
-        return "嗯嗯";
+        return "在的，收到。有需要我再细说。";
       }
       debugLog()?.log("channel", `${agentId}/#${channelName}: chose not to reply`);
+      return null;
+    }
+
+    if (!isMentioned && !asksEachMember && isTrivialChannelFiller(cleaned)) {
+      debugLog()?.log("channel", `${agentId}/#${channelName}: trivial filler discarded`);
       return null;
     }
 

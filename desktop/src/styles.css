@@ -2365,6 +2365,49 @@ html[data-platform="linux"] .tb-toggle-right {
 .cron-confirm-status.approved { color: var(--green); }
 .cron-confirm-status.rejected { color: var(--text-muted); }
 
+/* ═══ Handoff 转交指示卡 ═══ */
+
+.handoff-notice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin: var(--space-md) auto;
+    padding: var(--space-xs) var(--space-md);
+    max-width: 600px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface, #f7f7f8);
+    border: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.handoff-notice-arrow {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    opacity: 0.5;
+}
+
+.handoff-notice-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.handoff-notice-task {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.7;
+}
+
+.handoff-notice-task::before {
+    content: '·';
+    margin-right: var(--space-xs);
+}
+
 /* ═══ Xing 反省卡片 ═══ */
 
 .xing-card {
@@ -3742,7 +3785,7 @@ html[data-platform="linux"] .tb-toggle-right {
     height: 100%;
     overflow: hidden;
     padding: 10px 7px 7px 0;
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.06);
+    box-shadow: none;
 }
 
 /* ── 卡片容器 ── */
@@ -4222,7 +4265,6 @@ body.resizing .jian-sidebar-inner {
     border-radius: var(--radius-md);
     border: 1px solid var(--jian-note-border, rgba(200, 160, 110, 0.2));
     background: var(--jian-note-bg, #FAF0E2);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     display: flex;
     flex-direction: column;
     height: 300px;
@@ -4433,14 +4475,11 @@ body.resizing .jian-sidebar-inner {
     border: 1px solid rgba(var(--accent-rgb), 0.12);
     border-radius: var(--radius-lg);
     padding: var(--space-md) var(--space-sm) var(--space-sm) var(--space-md);
-    box-shadow: 0 3px 10px var(--shadow);
-    transition: border-color 0.5s var(--ease-out),
-                box-shadow 0.5s var(--ease-out);
+    transition: border-color 0.15s var(--ease-out);
 }
 
 .input-wrapper:focus-within {
     border-color: rgba(0, 0, 0, 0.10);
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.07);
 }
 
 .input-box {

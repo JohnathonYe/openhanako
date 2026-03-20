@@ -17,6 +17,7 @@
  *   { type: "tool_start", name: "..." }
  *   { type: "tool_end", name: "...", success: bool, details?: object }
  *   { type: "turn_end" }
+ *   { type: "agent_switched", agentId: "...", agentName: "...", yuan: "...", sessionPath: "...", handoff?: { fromAgentId, fromAgentName, toAgentId, toAgentName, task } }  (handoff_service 转交后主助手与会话已切换)
  *   { type: "error", message: "..." }
  *   { type: "status", isStreaming: bool }
  *   { type: "session_title", title: "...", path: "..." }

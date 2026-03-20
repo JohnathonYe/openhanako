@@ -29,6 +29,8 @@ import { createExperienceTools } from "../lib/tools/experience.js";
 import { createInstallSkillTool } from "../lib/tools/install-skill.js";
 import { createNotifyTool } from "../lib/tools/notify-tool.js";
 import { createDelegateTool } from "../lib/tools/delegate-tool.js";
+import { createServiceHandoffTool } from "../lib/tools/service-handoff-tool.js";
+import { createBridgeMessageOwnerTool } from "../lib/tools/bridge-message-owner-tool.js";
 import { createCreateScriptTool } from "../lib/tools/create-script-tool.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
@@ -93,6 +95,24 @@ export class Agent {
     this._cdpBrowserTool = null;
     this._notifyTool = null;
     this._createScriptTool = null;
+    this._serviceHandoffTool = null;
+    this._bridgeMessageOwnerTool = null;
+  }
+
+  /** 列出 agents 目录下其它助手（id + config 展示名） */
+  _listSiblingAgents() {
+    if (!this.agentsDir) return [];
+    try {
+      return fs.readdirSync(this.agentsDir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && fs.existsSync(path.join(this.agentsDir, e.name, "config.yaml")))
+        .map(e => {
+          try {
+            const raw = fs.readFileSync(path.join(this.agentsDir, e.name, "config.yaml"), "utf-8");
+            const nameMatch = raw.match(/^\s*name:\s*(.+)$/m);
+            return { id: e.name, name: nameMatch?.[1]?.trim() || e.name };
+          } catch { return { id: e.name, name: e.name }; }
+        });
+    } catch { return []; }
   }
 
   // ════════════════════════════
@@ -311,6 +331,20 @@ export class Agent {
       readOnlyBuiltinTools: READ_ONLY_BUILTIN_TOOLS,
     });
 
+    this._serviceHandoffTool = createServiceHandoffTool({
+      agentId: path.basename(this.agentDir),
+      listAgents: () => this._engine?.listAgents?.() ?? this._listSiblingAgents(),
+      getEngine: () => this._engine,
+      channelsDir: this.channelsDir,
+      onChannelPost: (channelName, senderId) => {
+        this._channelPostHandler?.(channelName, senderId);
+      },
+    });
+
+    this._bridgeMessageOwnerTool = createBridgeMessageOwnerTool({
+      getEngine: () => this._engine,
+    });
+
     // 12. 组装 system prompt
     log(`  [agent] 9. buildSystemPrompt...`);
     this._systemPrompt = this.buildSystemPrompt();
@@ -432,6 +466,8 @@ export class Agent {
       this._installSkillTool,
       this._notifyTool,
       this._delegateTool,
+      this._serviceHandoffTool,
+      this._bridgeMessageOwnerTool,
       this._createScriptTool,
     ].filter(Boolean);
   }

@@ -47,16 +47,22 @@ function ensureGroup(role: string): HTMLElement {
   if (role === 'assistant') {
     const sa = crState().sessionAgent as { name?: string; avatarUrl?: string; yuan?: string } | null;
     const displayName = sa?.name || (crState().agentName as string);
+    const yuanForFallback = ((sa?.yuan as string) || (crState().agentYuan as string) || '') as string;
     const displayAvatar = sa?.avatarUrl
       || (sa ? crCtx!.yuanFallbackAvatar(sa.yuan || '') : null)
       || (crState().agentAvatarUrl as string)
       || crCtx!.yuanFallbackAvatar(crState().agentYuan as string);
+    const fallbackSrc = crCtx!.yuanFallbackAvatar(yuanForFallback);
 
     const avatar = document.createElement('img');
     avatar.className = 'avatar hana-avatar';
     avatar.src = displayAvatar;
     avatar.alt = displayName;
     avatar.draggable = false;
+    avatar.addEventListener('error', function onAvatarErr() {
+      avatar.removeEventListener('error', onAvatarErr);
+      if (avatar.src !== fallbackSrc) avatar.src = fallbackSrc;
+    }, { once: true });
     avatarRow.appendChild(avatar);
 
     const name = document.createElement('span');
@@ -763,6 +769,33 @@ function crRenderHistoryToolGroup(
   container.appendChild(wrapper);
 }
 
+// ── Handoff 转交指示卡片 ──
+
+function crRenderHandoffNotice(info: {
+  fromName: string;
+  toName: string;
+  task: string;
+}): void {
+  const messagesEl = crCtx!.messagesEl;
+  const card = document.createElement('div');
+  card.className = 'handoff-notice';
+  const arrow = document.createElement('span');
+  arrow.className = 'handoff-notice-arrow';
+  arrow.textContent = '→';
+  const label = document.createElement('span');
+  label.className = 'handoff-notice-label';
+  label.textContent = `${info.fromName} → ${info.toName}`;
+  const taskEl = document.createElement('span');
+  taskEl.className = 'handoff-notice-task';
+  taskEl.textContent = info.task.length > 60 ? info.task.slice(0, 57) + '…' : info.task;
+  card.appendChild(arrow);
+  card.appendChild(label);
+  if (info.task.trim()) card.appendChild(taskEl);
+  messagesEl.appendChild(card);
+  crState().lastRole = null;
+  crCtx!.scrollToBottom();
+}
+
 // ── Xing 反省卡片 ──
 
 function crShowXingLoading(title: string): void {
@@ -860,6 +893,7 @@ export function setupChatRenderShim(modules: Record<string, unknown>): void {
     updateToolInGroup: crUpdateToolInGroup,
     sealToolGroup: crSealToolGroup,
     renderHistoryToolGroup: crRenderHistoryToolGroup,
+    renderHandoffNotice: crRenderHandoffNotice,
     showXingLoading: crShowXingLoading,
     sealXingCard: crSealXingCard,
     initChatRender: (injected: ChatRenderCtx) => { crCtx = injected; },

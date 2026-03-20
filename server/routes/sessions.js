@@ -15,6 +15,16 @@ import { isToolCallBlock, getToolArgs, normalizeToolCallContent } from "../../co
  */
 const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query"];
 
+/** Pi 消息 content：string 或 text 块数组 */
+function textFromFlexibleContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c) => c && c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text)
+    .join("\n");
+}
+
 /** 从文本中提取并剥离 <think>...</think> 标签 */
 function stripThinkTags(raw) {
   const thinkParts = [];
@@ -210,6 +220,12 @@ function isValidSessionPath(sessionPath, baseDir) {
   return resolved.startsWith(base + path.sep) || resolved === base;
 }
 
+function assistantDisplayName(engine, agentId) {
+  if (!agentId) return undefined;
+  const ag = engine.getAgent(agentId);
+  return ag?.agentName || agentId;
+}
+
 export default async function sessionsRoute(app, { engine }) {
 
   // 列出所有 agent 的历史 session
@@ -242,7 +258,15 @@ export default async function sessionsRoute(app, { engine }) {
       const fileOutputs = [];   // { afterIndex, files: [{ filePath, label, ext }] }
       const artifacts = [];     // { afterIndex, artifactType, title, content, language }
 
+      const sessionPath = engine.currentSessionPath;
+      let segmentAssistantId = sessionPath
+        ? engine.agentIdFromSessionPath(sessionPath)
+        : engine.currentAgentId;
+
       for (const m of sourceMessages) {
+        if (m.role === "custom" && m.customType === "hana_handoff_instruction") {
+          continue;
+        }
         if (m.role === "user") {
           const { text, inlineMedia } = extractUserMessageForHistory(m.content);
           if ((text && String(text).trim()) || inlineMedia.length > 0) {
@@ -260,7 +284,28 @@ export default async function sessionsRoute(app, { engine }) {
               content: text,
               thinking: thinking || undefined,
               toolCalls: toolUses.length ? toolUses : undefined,
+              assistantAgentId: segmentAssistantId || undefined,
+              assistantAgentName: assistantDisplayName(engine, segmentAssistantId),
             });
+          }
+        } else if (m.role === "custom" && m.customType === "hana_handoff") {
+          const text = textFromFlexibleContent(m.content).trim();
+          if (text) {
+            const fromId = m.details?.fromAgentId || segmentAssistantId;
+            const toName = m.details?.toAgentName
+              || assistantDisplayName(engine, m.details?.toAgentId)
+              || undefined;
+            messages.push({
+              role: "assistant",
+              content: text,
+              handoffFrom: m.details?.fromAgentName || m.details?.fromAgentId || undefined,
+              handoffToAgentName: toName,
+              assistantAgentId: fromId || undefined,
+              assistantAgentName: assistantDisplayName(engine, fromId),
+            });
+          }
+          if (m.details?.toAgentId) {
+            segmentAssistantId = m.details.toAgentId;
           }
         } else if (m.role === "toolResult") {
           const d = m.details || {};

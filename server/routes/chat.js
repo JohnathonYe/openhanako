@@ -154,6 +154,11 @@ export default async function chatRoute(app, { engine, hub }) {
     }
   }
 
+  engine.setAgentSwitchBroadcast((msg) => broadcast(msg));
+  engine.setHandoffStreamingBroadcast((streaming) => {
+    broadcast({ type: "status", isStreaming: !!streaming });
+  });
+
   // 浏览器缩略图 30s 定时刷新（browser 活跃时）
   let _browserThumbTimer = null;
   function startBrowserThumbPoll() {
@@ -488,6 +493,10 @@ export default async function chatRoute(app, { engine, hub }) {
       if (isActive) {
         debugLog()?.log("ws", "assistant reply done");
         maybeGenerateFirstTurnTitle(sessionPath, ss);
+        // 推迟到本轮 turn_end 收尾之后，避免与 Pi 会话收尾并发导致 sessionManager 为空
+        setTimeout(() => {
+          engine.applyPendingServiceHandoffIfAny?.().catch(() => {});
+        }, 0);
       }
     }
   });

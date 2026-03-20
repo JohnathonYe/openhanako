@@ -145,7 +145,7 @@ async function rebuildCurrentSessionFromResume(msg: any): Promise<void> {
   const myVersion = ++_streamResumeRebuildVersion;
   _streamResumeRebuildingFor = sessionPath;
   try {
-    ctx._ag().clearChat();
+    ctx._ag().clearChat({ keepWelcomeHidden: true });
     await ctx._msg().loadMessages();
 
     if (myVersion !== _streamResumeRebuildVersion) return;
@@ -408,9 +408,70 @@ function handleServerMessage(msg: any): void {
       }
       break;
 
+    case 'agent_switched': {
+      const aid = msg.agentId as string | undefined;
+      const aname = msg.agentName as string | undefined;
+      const ayuan = msg.yuan as string | undefined;
+      const sp = msg.sessionPath as string | undefined;
+      const handoff = msg.handoff as {
+        fromAgentId?: string; fromAgentName?: string;
+        toAgentId?: string; toAgentName?: string;
+        task?: string;
+      } | undefined;
+      // handoff 切换后，后续 text_delta 可能很快到达；
+      // 先强制封存当前 assistant 容器，避免续写到旧消息体。
+      _cr().finishAssistantMessage();
+      _cr().breakAssistantGroup();
+      state.currentTextBuffer = '';
+      state._thinkingBuf = '';
+      state.inMood = false;
+      state.currentMoodEl = null;
+      state.currentMoodWrapper = null;
+      state.inXing = false;
+      state.xingTitle = null;
+      state.xingCardEl = null;
+      state._xingBuf = '';
+      state.lastRole = null;
+      // 欢迎页「助手芯片」会设置 selectedAgentId，展示优先级高于 currentAgentId；
+      // 转交后若不清空，界面会一直像没切换到新主助手。
+      useStore.setState({ selectedAgentId: null, sessionAgent: null });
+      // 同步 yuan（立即生效，不等异步 loadAgents）
+      if (ayuan) state.agentYuan = ayuan;
+      // 必须先同步会话路径，避免紧随其后的流式事件仍指向旧 session
+      if (sp) {
+        state.currentSessionPath = sp;
+        state.pendingNewSession = false;
+      }
+      // 渲染转交指示卡片（在旧 agent 气泡与新 agent 气泡之间）
+      if (handoff?.fromAgentName && handoff?.toAgentName) {
+        _cr().renderHandoffNotice({
+          fromName: handoff.fromAgentName,
+          toName: handoff.toAgentName,
+          task: handoff.task || '',
+        });
+      }
+      void (async () => {
+        try {
+          await ctx._ag().applyAgentIdentity({
+            agentId: aid,
+            agentName: aname,
+            yuan: ayuan,
+            ui: { agents: true, avatars: true },
+          });
+          await ctx._sb().loadSessions();
+        } catch (e) {
+          console.error('[ws] agent_switched', e);
+        }
+      })();
+      break;
+    }
+
     case 'turn_end':
       useStore.getState().setLastOutboundMediaKinds(null);
-      _cr().finishAssistantTurn();
+      // 必须封存整条 assistant 气泡（含工具组），不能只用 finishAssistantTurn：
+      // handoff_service 触发的后续回合不走 WS prompt 的 status isStreaming:false，
+      // 若此处仍保留 currentAssistantEl，下一条用户消息会出现在底部而流式回复续写到旧气泡 →「回复在上面」。
+      _cr().finishAssistantMessage();
       _sb().loadSessions();
       break;
 

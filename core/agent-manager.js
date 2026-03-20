@@ -299,6 +299,16 @@ export class AgentManager {
     log.log(`已切换到助手: ${this.agent.agentName} (${agentId})`);
   }
 
+  /**
+   * 主聊天 handoff：切换主助手与技能/偏好，但不新建会话（保留当前 JSONL，模型上下文连续）。
+   */
+  async switchAgentKeepSession(agentId) {
+    await this.switchAgentOnly(agentId);
+    this._d.getSkills().syncAgentSkills(this.agent);
+    this._d.getPrefs().savePrimaryAgent(agentId);
+    log.log(`已切换主助手（保留会话）: ${this.agent.agentName} (${agentId})`);
+  }
+
   async createSessionForAgent(agentId, cwd, memoryEnabled = true) {
     if (agentId && agentId !== this._activeAgentId) {
       await this.switchAgentOnly(agentId);
