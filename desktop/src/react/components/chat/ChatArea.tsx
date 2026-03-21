@@ -33,12 +33,6 @@ function PanelHost() {
   const welcomeVisible = useStore(s => s.welcomeVisible);
   const [alive, setAlive] = useState<string[]>([]);
 
-  // 隐藏旧 #messages
-  useEffect(() => {
-    const el = document.getElementById('messages');
-    if (el) el.style.display = 'none';
-  }, []);
-
   // 加入 alive 列表（不重排已有位置，避免 React 移动 DOM 节点导致 scrollTop 丢失）
   useEffect(() => {
     if (!currentPath) return;

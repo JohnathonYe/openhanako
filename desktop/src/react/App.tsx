@@ -449,7 +449,6 @@ function App() {
 
           <div className="chat-area" id="chatArea">
             <WelcomeContainer />
-            <div className="messages" id="messages"></div>
             <ChatArea />
           </div>
 

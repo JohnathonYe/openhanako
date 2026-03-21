@@ -184,7 +184,7 @@ export async function createNewSession(): Promise<void> {
   // updateFolderButton — no-op (React-driven)
 
   const currentState = useStore.getState();
-  loadDeskFiles('', currentState.selectedFolder || currentState.homeFolder);
+  loadDeskFiles('', currentState.selectedFolder || currentState.homeFolder || undefined);
 
   useStore.getState().requestInputFocus();
 }

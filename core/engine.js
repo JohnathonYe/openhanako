@@ -255,6 +255,7 @@ export class HanaEngine {
   get homeCwd() { return this._configCoord.getHomeFolder() || null; }
   get authStorage() { return this._models.authStorage; }
   get modelRegistry() { return this._models.modelRegistry; }
+  get providerRegistry() { return this._models.providerRegistry; }
   get preferences() { return this._prefs; }
 
   /** 刷新可用模型列表（含 OAuth 自定义模型注入） */

@@ -76,7 +76,7 @@ export function connectWebSocket(port?: string, token?: string): void {
 
   _ws.onclose = () => {
     setStatus('status.disconnected', false);
-    _wsRetryTimer = setTimeout(() => connectWebSocket(serverPort, serverToken), _wsRetryDelay);
+    _wsRetryTimer = setTimeout(() => connectWebSocket(serverPort, serverToken ?? undefined), _wsRetryDelay);
     _wsRetryDelay = Math.min(_wsRetryDelay * 2, WS_RETRY_MAX);
   };
 

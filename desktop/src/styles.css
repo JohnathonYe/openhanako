@@ -1797,15 +1797,6 @@ html[data-platform="linux"] .tb-toggle-right {
 /* ========================================
    消息气泡
    ======================================== */
-.messages {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    max-width: 640px;
-    margin: 0 auto;
-    width: 100%;
-}
-
 /* 消息组：avatar 头 + 若干气泡 */
 .message-group {
     display: flex;

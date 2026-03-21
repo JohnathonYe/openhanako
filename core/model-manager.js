@@ -4,6 +4,9 @@
  * 管理 Pi SDK AuthStorage / ModelRegistry 基础设施，
  * 以及模型选择、provider 凭证查找、utility 配置解析。
  * 从 Engine 提取，Engine 通过 manager 访问模型状态。
+ *
+ * v2 新增：ProviderRegistry / ModelCatalog / AuthStore / ExecutionRouter
+ * 四个新模块通过 init() 后挂载到实例，旧接口保持向后兼容。
  */
 import path from "path";
 import {
@@ -14,6 +17,10 @@ import { registerOAuthProvider } from "@mariozechner/pi-ai/oauth";
 import { minimaxOAuthProvider } from "../lib/oauth/minimax-portal.js";
 import { clearConfigCache, loadGlobalProviders, resolveApiKeyFromAuth, resolveOAuthCredentials } from "../lib/memory/config-loader.js";
 import { t } from "../server/i18n.js";
+import { ProviderRegistry } from "./provider-registry.js";
+import { ModelCatalog } from "./model-catalog.js";
+import { AuthStore } from "./auth-store.js";
+import { ExecutionRouter } from "./execution-router.js";
 
 function isLocalBaseUrl(url) {
   return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(String(url || ""));
@@ -31,9 +38,15 @@ export class ModelManager {
     this._defaultModel = null;   // 设置页面选的，持久化，bridge 用这个
     this._sessionModel = null;   // 聊天页面临时切的，只影响桌面端
     this._availableModels = [];
+
+    // v2：新架构四层模块（init() 后可用）
+    this.providerRegistry = new ProviderRegistry(hanakoHome);
+    this.modelCatalog = null;   // 依赖 modelsJsonPath，init() 后创建
+    this.authStore = null;
+    this.executionRouter = null;
   }
 
-  /** 初始化 AuthStorage + ModelRegistry */
+  /** 初始化 AuthStorage + ModelRegistry + 新架构模块 */
   init() {
     this._authStorage = AuthStorage.create(path.join(this._hanakoHome, "auth.json"));
     registerOAuthProvider(minimaxOAuthProvider);
@@ -41,6 +54,13 @@ export class ModelManager {
       this._authStorage,
       path.join(this._hanakoHome, "models.json"),
     );
+
+    // v2 模块初始化
+    this.providerRegistry.reload();
+    this.modelCatalog = new ModelCatalog(this.providerRegistry, this.modelsJsonPath);
+    this.authStore = new AuthStore(this._hanakoHome, this.providerRegistry);
+    this.authStore.load();
+    this.executionRouter = new ExecutionRouter(this.modelCatalog, this.authStore);
   }
 
   // ── Getters ──
@@ -62,6 +82,13 @@ export class ModelManager {
   async refreshAvailable() {
     this._availableModels = await this._modelRegistry.getAvailable();
     this._injectOAuthCustomModels();
+    // v2：同步刷新 ModelCatalog
+    if (this.modelCatalog) {
+      await this.modelCatalog.build();
+      const oauthCustom = this._prefs?.getOAuthCustomModels?.() || {};
+      this.modelCatalog.injectOAuthCustomModels(oauthCustom);
+      this.authStore?.load();
+    }
     return this._availableModels;
   }
 
@@ -120,6 +147,14 @@ export class ModelManager {
       registerOAuthProvider(minimaxOAuthProvider);
       this._availableModels = await this._modelRegistry.getAvailable();
       this._injectOAuthCustomModels();
+      // v2：同步刷新 ModelCatalog + AuthStore
+      if (this.modelCatalog) {
+        await this.modelCatalog.refresh();
+        const oauthCustom = this._prefs?.getOAuthCustomModels?.() || {};
+        this.modelCatalog.injectOAuthCustomModels(oauthCustom);
+        this.authStore?.invalidate();
+        this.authStore?.load();
+      }
     }
     return synced;
   }

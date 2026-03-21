@@ -1047,7 +1047,6 @@ export function ChannelCreate() {
   // Show/hide overlay via channelCreateBtn
   useEffect(() => {
     const createBtn = document.getElementById('channelCreateBtn');
-    const cancelBtn = document.getElementById('channelCreateCancelBtnLegacy'); // won't exist, we handle inside
     const overlay = document.getElementById('channelCreateOverlay');
 
     const handleCreate = () => {

@@ -51,6 +51,7 @@ function ensureCurrentSessionVisible(): void {
       messageCount: 0,
       agentId: state.currentAgentId || null,
       agentName: state.agentName || null,
+      cwd: null,
       _optimistic: true,
     }, ...state.sessions],
   });
