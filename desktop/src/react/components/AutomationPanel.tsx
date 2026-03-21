@@ -3,6 +3,7 @@ import { useStore } from '../stores';
 import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
 import { cronToHuman } from '../utils/format';
 import { yuanFallbackAvatar } from '../utils/agent-helpers';
+import fp from './FloatingPanels.module.css';
 
 interface CronJob {
   id: string;
@@ -90,21 +91,21 @@ export function AutomationPanel() {
   if (activePanel !== 'automation') return null;
 
   return (
-    <div className="floating-panel" id="automationPanel">
-      <div className="floating-panel-inner">
-        <div className="floating-panel-header">
-          <h2 className="floating-panel-title">{(window.t ?? ((p: string) => p))('automation.title')}</h2>
-          <button className="floating-panel-close" onClick={close}>
+    <div className={fp.floatingPanel} id="automationPanel">
+      <div className={fp.floatingPanelInner}>
+        <div className={fp.floatingPanelHeader}>
+          <h2 className={fp.floatingPanelTitle}>{(window.t ?? ((p: string) => p))('automation.title')}</h2>
+          <button className={fp.floatingPanelClose} onClick={close}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
-        <div className="floating-panel-body">
-          <div className="automation-list" id="automationList">
+        <div className={fp.floatingPanelBody}>
+          <div className={fp.automationList} id="automationList">
             {jobs.length === 0 ? (
-              <div className="automation-empty">{(window.t ?? ((p: string) => p))('automation.empty')}</div>
+              <div className={fp.automationEmpty}>{(window.t ?? ((p: string) => p))('automation.empty')}</div>
             ) : (
               jobs.map(job => (
                 <AutomationItem
@@ -188,18 +189,18 @@ function AutomationItem({
   modelOptions.push(...favorites);
 
   return (
-    <div className="auto-item">
+    <div className={fp.autoItem}>
       <button
         className={'hana-toggle' + (job.enabled ? ' on' : '')}
         title={job.enabled ? 'Disable' : 'Enable'}
         onClick={() => onToggle(job.id)}
       />
-      <div className="auto-item-info">
+      <div className={fp.autoItemInfo}>
         {editing ? (
           <input
             ref={inputRef}
             type="text"
-            className="auto-item-label-input"
+            className={fp.autoItemLabelInput}
             value={editValue}
             onChange={e => setEditValue(e.target.value)}
             onBlur={commitEdit}
@@ -209,22 +210,22 @@ function AutomationItem({
             }}
           />
         ) : (
-          <span className="auto-item-label" onDoubleClick={startEdit}>{labelText}</span>
+          <span className={fp.autoItemLabel} onDoubleClick={startEdit}>{labelText}</span>
         )}
-        <div className="auto-item-meta">
-          <div className="auto-item-executor">
+        <div className={fp.autoItemMeta}>
+          <div className={fp.autoItemExecutor}>
             <img
-              className="auto-item-executor-avatar"
+              className={fp.autoItemExecutorAvatar}
               src={avatarSrc}
               onError={e => { (e.target as HTMLImageElement).onerror = null; (e.target as HTMLImageElement).src = yuanFallbackAvatar(agentYuan); }}
             />
-            <span className="auto-item-executor-name">{agentName}</span>
+            <span className={fp.autoItemExecutorName}>{agentName}</span>
           </div>
-          <span className="auto-item-schedule">{cronToHuman(job.schedule)}</span>
+          <span className={fp.autoItemSchedule}>{cronToHuman(job.schedule)}</span>
           {favorites.length > 0 && (
-            <span className="auto-item-model-wrap">
+            <span className={fp.autoItemModelWrap}>
               <select
-                className="auto-item-model-select"
+                className={fp.autoItemModelSelect}
                 title="Model"
                 value={job.model || ''}
                 onChange={e => onUpdate(job.id, { model: e.target.value })}
@@ -238,14 +239,14 @@ function AutomationItem({
           )}
         </div>
       </div>
-      <div className="auto-item-actions">
-        <button className="auto-item-btn" title={(window.t ?? ((p: string) => p))('automation.edit')} onClick={startEdit}>
+      <div className={fp.autoItemActions}>
+        <button className={fp.autoItemBtn} title={(window.t ?? ((p: string) => p))('automation.edit')} onClick={startEdit}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
           </svg>
         </button>
-        <button className="auto-item-btn danger" title={(window.t ?? ((p: string) => p))('automation.delete')} onClick={() => onRemove(job.id)}>
+        <button className={`${fp.autoItemBtn} ${fp.autoItemBtnDanger}`} title={(window.t ?? ((p: string) => p))('automation.delete')} onClick={() => onRemove(job.id)}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="3 6 5 6 21 6" />
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />

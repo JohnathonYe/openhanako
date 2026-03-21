@@ -3,6 +3,7 @@
  */
 
 import { memo, useRef, useEffect, useCallback } from 'react';
+import styles from './Chat.module.css';
 import { renderMarkdown } from '../../utils/markdown';
 import { injectCopyButtons } from '../../utils/format';
 
@@ -28,22 +29,22 @@ export const XingCard = memo(function XingCard({ title, content, sealed, agentNa
   const html = sealed ? renderMarkdown(content) : '';
 
   return (
-    <div className={`xing-card${sealed ? '' : ' loading'}`}>
-      <div className="xing-card-title">{title}</div>
-      <hr className="xing-card-divider" />
+    <div className={`${styles.xingCard}${sealed ? '' : ` ${styles.xingCardLoading}`}`}>
+      <div className={styles.xingCardTitle}>{title}</div>
+      <hr className={styles.xingCardDivider} />
       {sealed ? (
         <>
           <div
             ref={bodyRef}
-            className="xing-card-body"
+            className={styles.xingCardBody}
             dangerouslySetInnerHTML={{ __html: html }}
           />
-          <button className="xing-card-copy" onClick={handleCopy}>{t('common.copy')}</button>
+          <button className={styles.xingCardCopy} onClick={handleCopy}>{t('common.copy')}</button>
         </>
       ) : (
-        <div className="xing-card-status">
+        <div className={styles.xingCardStatus}>
           {t('xing.thinking', { name: agentName || 'Hanako' })}
-          <span className="thinking-dots"><span /><span /><span /></span>
+          <span className={styles.thinkingDots}><span /><span /><span /></span>
         </div>
       )}
     </div>

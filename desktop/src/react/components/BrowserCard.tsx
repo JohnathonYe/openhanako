@@ -32,7 +32,7 @@ export function BrowserCard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionPath }),
-      }).catch(() => {});
+      }).catch(err => console.warn('[browser] close session failed:', err));
     }
   }, [setBrowserRunning, setBrowserThumbnail]);
 

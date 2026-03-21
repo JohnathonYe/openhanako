@@ -4,6 +4,7 @@
 
 import { memo, useState, useCallback } from 'react';
 import { moodLabel } from '../../utils/message-parser';
+import styles from './Chat.module.css';
 
 interface Props {
   yuan: string;
@@ -15,13 +16,13 @@ export const MoodBlock = memo(function MoodBlock({ yuan, text }: Props) {
   const toggle = useCallback(() => setOpen(v => !v), []);
 
   return (
-    <div className="mood-wrapper" data-yuan={yuan}>
-      <div className="mood-summary" onClick={toggle}>
-        <span className={`mood-arrow${open ? ' open' : ''}`}>›</span>
+    <div className={styles.moodWrapper} data-yuan={yuan}>
+      <div className={styles.moodSummary} onClick={toggle}>
+        <span className={`${styles.moodArrow}${open ? ` ${styles.moodArrowOpen}` : ''}`}>›</span>
         {' '}{moodLabel(yuan)}
       </div>
       {open && (
-        <div className="mood-block">{text}</div>
+        <div className={styles.moodBlock}>{text}</div>
       )}
     </div>
   );

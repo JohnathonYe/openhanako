@@ -3,6 +3,7 @@ import { useStore } from '../stores';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { formatSessionDate, parseMoodFromContent } from '../utils/format';
 import { renderMarkdown } from '../utils/markdown';
+import fp from './FloatingPanels.module.css';
 
 interface BridgeSession {
   sessionKey: string;
@@ -78,38 +79,49 @@ export function BridgePanel() {
     }
   }, [activePanel, platform, loadPlatformData]);
 
-  // 注册 WS 回调
+  // 订阅 bridge status 变化（代替 window.__hanaBridgeLoadStatus）
+  const bridgeStatusTrigger = useStore(s => s.bridgeStatusTrigger);
   useEffect(() => {
-    window.__hanaBridgeLoadStatus = loadStatus;
-    window.__hanaBridgeOnMessage = (msg) => {
-      if (activePanel !== 'bridge') return;
-      // 防抖刷新联系人列表
-      if (!refreshTimerRef.current) {
-        refreshTimerRef.current = setTimeout(() => {
-          refreshTimerRef.current = null;
-          loadPlatformData(platform);
-        }, 500);
-      }
-      // 追加到当前会话（用 ref 避免闭包捕获陈旧值）
-      if (msg.sessionKey === currentKeyRef.current) {
-        const role = msg.direction === 'out' ? 'assistant' : 'user';
-        setMessages(prev => [...prev, { role, content: msg.text }]);
-        // 自动滚到底
-        setTimeout(() => {
-          const el = messagesRef.current;
-          if (el) {
-            const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-            if (wasAtBottom) el.scrollTop = el.scrollHeight;
-          }
-        }, 0);
-      }
-    };
+    if (bridgeStatusTrigger > 0) loadStatus();
+  }, [bridgeStatusTrigger, loadStatus]);
+
+  // 订阅 bridge 消息（代替 window.__hanaBridgeOnMessage）
+  const bridgeLatestMessage = useStore(s => s.bridgeLatestMessage);
+  useEffect(() => {
+    if (!bridgeLatestMessage || activePanel !== 'bridge') return;
+    const msg = bridgeLatestMessage;
+    // Leading + trailing debounce：第一条消息立即刷新，后续 500ms 内攒着，到期再刷一次
+    if (!refreshTimerRef.current) {
+      // leading：立即刷新
+      loadPlatformData(platform);
+    } else {
+      clearTimeout(refreshTimerRef.current);
+    }
+    // trailing：500ms 后再刷一次（捕获期间的变化）
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      loadPlatformData(platform);
+    }, 500);
+    // 追加到当前会话（用 ref 避免闭包捕获陈旧值）
+    if (msg.sessionKey === currentKeyRef.current) {
+      const role = msg.direction === 'out' ? 'assistant' : 'user';
+      setMessages(prev => [...prev, { role, content: msg.text }]);
+      // 自动滚到底
+      setTimeout(() => {
+        const el = messagesRef.current;
+        if (el) {
+          const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          if (wasAtBottom) el.scrollTop = el.scrollHeight;
+        }
+      }, 0);
+    }
     return () => {
-      delete window.__hanaBridgeLoadStatus;
-      delete window.__hanaBridgeOnMessage;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
     };
-  }, [activePanel, platform, loadStatus, loadPlatformData]);
+  }, [bridgeLatestMessage, activePanel, platform, loadPlatformData]);
 
   const switchTab = useCallback((plat: string) => {
     setPlatform(plat);
@@ -157,59 +169,59 @@ export function BridgePanel() {
   const qqStatus = statusData.qq?.status;
 
   return (
-    <div className="floating-panel bridge-panel-wide" id="bridgePanel">
-      <div className="floating-panel-inner">
-        <div className="floating-panel-header">
-          <div className="bridge-tabs" id="bridgeTabs">
+    <div className={`${fp.floatingPanel} ${fp.bridgePanelWide}`} id="bridgePanel">
+      <div className={fp.floatingPanelInner}>
+        <div className={fp.floatingPanelHeader}>
+          <div className={fp.bridgeTabs} id="bridgeTabs">
             <button
-              className={'bridge-tab' + (platform === 'feishu' ? ' active' : '')}
+              className={`${fp.bridgeTab}${platform === 'feishu' ? ` ${fp.bridgeTabActive}` : ''}`}
               onClick={() => switchTab('feishu')}
             >
-              <span className={'bridge-tab-dot' + dotClass(fsStatus)} />
+              <span className={`${fp.bridgeTabDot}${dotClass(fsStatus)}`} />
               <span>{t('settings.bridge.feishu')}</span>
             </button>
             <button
-              className={'bridge-tab' + (platform === 'telegram' ? ' active' : '')}
+              className={`${fp.bridgeTab}${platform === 'telegram' ? ` ${fp.bridgeTabActive}` : ''}`}
               onClick={() => switchTab('telegram')}
             >
-              <span className={'bridge-tab-dot' + dotClass(tgStatus)} />
+              <span className={`${fp.bridgeTabDot}${dotClass(tgStatus)}`} />
               Telegram
             </button>
             <button
-              className={'bridge-tab' + (platform === 'whatsapp' ? ' active' : '')}
+              className={`${fp.bridgeTab}${platform === 'whatsapp' ? ` ${fp.bridgeTabActive}` : ''}`}
               onClick={() => switchTab('whatsapp')}
             >
-              <span className={'bridge-tab-dot' + dotClass(waStatus)} />
+              <span className={`${fp.bridgeTabDot}${dotClass(waStatus)}`} />
               WhatsApp
             </button>
             <button
-              className={'bridge-tab' + (platform === 'qq' ? ' active' : '')}
+              className={`${fp.bridgeTab}${platform === 'qq' ? ` ${fp.bridgeTabActive}` : ''}`}
               onClick={() => switchTab('qq')}
             >
-              <span className={'bridge-tab-dot' + dotClass(qqStatus)} />
+              <span className={`${fp.bridgeTabDot}${dotClass(qqStatus)}`} />
               QQ
             </button>
           </div>
-          <button className="floating-panel-close" onClick={close}>
+          <button className={fp.floatingPanelClose} onClick={close}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
           </button>
         </div>
-        <div className="bridge-body">
+        <div className={fp.bridgeBody}>
           {showOverlay && (
-            <div className="bridge-overlay" id="bridgeOverlay">
-              <div className="bridge-overlay-content">
+            <div className={fp.bridgeOverlay} id="bridgeOverlay">
+              <div className={fp.bridgeOverlayContent}>
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
                   <line x1="12" y1="9" x2="12" y2="13" />
                   <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
-                <div className="bridge-overlay-text">
+                <div className={fp.bridgeOverlayText}>
                   {t('bridge.notConfigured', { platform: platform === 'telegram' ? 'Telegram' : platform === 'whatsapp' ? 'WhatsApp' : platform === 'qq' ? 'QQ' : t('settings.bridge.feishu') })}
                 </div>
-                <button className="bridge-overlay-btn" onClick={() => window.platform.openSettings('bridge')}>
+                <button className={fp.bridgeOverlayBtn} onClick={() => window.platform.openSettings('bridge')}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="3" />
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -219,24 +231,24 @@ export function BridgePanel() {
               </div>
             </div>
           )}
-          <div className="bridge-sidebar" id="bridgeSidebar">
-            <div className="bridge-contact-list" id="bridgeContactList">
+          <div className={fp.bridgeSidebar} id="bridgeSidebar">
+            <div className={fp.bridgeContactList} id="bridgeContactList">
               {sessions.length === 0 ? (
-                <div className="bridge-contact-empty">{t('bridge.noSessions')}</div>
+                <div className={fp.bridgeContactEmpty}>{t('bridge.noSessions')}</div>
               ) : (
                 sessions.map(s => {
                   const name = s.displayName || s.chatId;
                   return (
                     <div
                       key={s.sessionKey}
-                      className={'bridge-contact-item' + (s.sessionKey === currentKey ? ' active' : '')}
+                      className={`${fp.bridgeContactItem}${s.sessionKey === currentKey ? ` ${fp.bridgeContactItemActive}` : ''}`}
                       onClick={() => openSession(s.sessionKey, name)}
                     >
                       <ContactAvatar name={name} avatarUrl={s.avatarUrl} />
-                      <div className="bridge-contact-info">
-                        <div className="bridge-contact-name">{name}</div>
+                      <div className={fp.bridgeContactInfo}>
+                        <div className={fp.bridgeContactName}>{name}</div>
                         {s.lastActive && (
-                          <div className="bridge-contact-time">
+                          <div className={fp.bridgeContactTime}>
                             {formatSessionDate(new Date(s.lastActive).toISOString())}
                           </div>
                         )}
@@ -247,28 +259,28 @@ export function BridgePanel() {
               )}
             </div>
           </div>
-          <div className="bridge-chat" id="bridgeChat">
+          <div className={fp.bridgeChat} id="bridgeChat">
             {chatOpen ? (
               <>
-                <div className="bridge-chat-header" id="bridgeChatHeader">
-                  <span className="bridge-chat-header-name">{currentName}</span>
-                  <button className="bridge-chat-reset" title={t('bridge.resetContext')} onClick={resetSession}>
+                <div className={fp.bridgeChatHeader} id="bridgeChatHeader">
+                  <span className={fp.bridgeChatHeaderName}>{currentName}</span>
+                  <button className={fp.bridgeChatReset} title={t('bridge.resetContext')} onClick={resetSession}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="1 4 1 10 7 10" />
                       <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
                     </svg>
                   </button>
                 </div>
-                <div className="bridge-chat-messages" ref={messagesRef} id="bridgeChatMessages">
+                <div className={fp.bridgeChatMessages} ref={messagesRef} id="bridgeChatMessages">
                   {messages.length === 0 ? (
-                    <div className="bridge-chat-no-msg">{t('bridge.noMessages')}</div>
+                    <div className={fp.bridgeChatNoMsg}>{t('bridge.noMessages')}</div>
                   ) : (
                     messages.map((m, i) => <ChatBubble key={i} message={m} />)
                   )}
                 </div>
               </>
             ) : (
-              <div className="bridge-chat-empty" id="bridgeChatEmpty">
+              <div className={fp.bridgeChatEmpty} id="bridgeChatEmpty">
                 <span>{t('bridge.selectChat')}</span>
               </div>
             )}
@@ -293,10 +305,10 @@ function updateSidebarDot(data: Record<string, { status: string } | undefined>) 
 function ContactAvatar({ name, avatarUrl }: { name: string; avatarUrl?: string }) {
   const [showImg, setShowImg] = useState(!!avatarUrl);
   return (
-    <div className="bridge-contact-avatar">
+    <div className={fp.bridgeContactAvatar}>
       {showImg && avatarUrl ? (
         <img
-          className="bridge-contact-avatar-img"
+          className={fp.bridgeContactAvatarImg}
           src={avatarUrl}
           alt={name}
           onError={() => setShowImg(false)}
@@ -313,8 +325,8 @@ function ChatBubble({ message: m }: { message: BridgeMessage }) {
     const { text } = parseMoodFromContent(m.content);
     const cleaned = (text || m.content).replace(/<tool_code>[\s\S]*?<\/tool_code>\s*/g, '');
     return (
-      <div className="bridge-bubble-row bridge-bubble-in">
-        <div className="bridge-bubble" dangerouslySetInnerHTML={{ __html: renderMarkdown(cleaned) }} />
+      <div className={`${fp.bridgeBubbleRow} ${fp.bridgeBubbleIn}`}>
+        <div className={fp.bridgeBubble} dangerouslySetInnerHTML={{ __html: renderMarkdown(cleaned) }} />
       </div>
     );
   }
@@ -323,8 +335,8 @@ function ChatBubble({ message: m }: { message: BridgeMessage }) {
   const prefixMatch = displayText.match(/^\[.+?\]\s*.+?:\s*/);
   if (prefixMatch) displayText = displayText.slice(prefixMatch[0].length);
   return (
-    <div className="bridge-bubble-row bridge-bubble-out">
-      <div className="bridge-bubble">{displayText}</div>
+    <div className={`${fp.bridgeBubbleRow} ${fp.bridgeBubbleOut}`}>
+      <div className={fp.bridgeBubble}>{displayText}</div>
     </div>
   );
 }

@@ -18,13 +18,18 @@ declare global {
     // ── 日志上报 ──
     __hanaLog: (level: string, module: string, message: string) => void;
 
-    // ── Bridge callbacks ──
-    __hanaBridgeLoadStatus?: () => void;
-    __hanaBridgeOnMessage?: (msg: {
-      sessionKey: string;
-      direction: string;
-      text: string;
-    }) => void;
+    // ── 主题 ──
+    applyTheme?: (theme: string) => void;
+
+    // ── Desk skills reload callback ──
+    __loadDeskSkills?: () => void;
+
+    // ── OAuth session tracking ──
+    __oauthSessionId?: string;
+
+    // ── Notification bridge ──
+    showNotification?: (title: string, body: string) => void;
+    updateBrowserViewer?: (data: { url: string; thumbnail?: string }) => void;
 
     // ── i18n loader ──
     i18n: {

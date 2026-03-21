@@ -7,8 +7,7 @@ import { MarkdownContent } from './MarkdownContent';
 import type { ChatMessage, UserAttachment, DeskContext } from '../../stores/chat-types';
 import { useStore } from '../../stores';
 import { hanaUrl } from '../../hooks/use-hana-fetch';
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import styles from './Chat.module.css';
 
 interface Props {
   message: ChatMessage;
@@ -26,27 +25,28 @@ export const UserMessage = memo(function UserMessage({ message, showAvatar }: Pr
   }, [userAvatarUrl]);
 
   return (
-    <div className="message-group user">
+    <div className={`${styles.messageGroup} ${styles.messageGroupUser}`}>
       {showAvatar && (
-        <div className="avatar-row user">
-          <span className="avatar-name">{userName}</span>
+        <div className={`${styles.avatarRow} ${styles.avatarRowUser}`}>
+          <span className={styles.avatarName}>{userName}</span>
           {userAvatarUrl && !avatarFailed ? (
             <img
-              className="avatar user-avatar-img"
+              className={styles.avatar}
               src={userAvatarUrl}
               alt={userName}
               draggable={false}
               onError={() => setAvatarFailed(true)}
+              style={{ objectFit: 'cover' }}
             />
           ) : (
-            <span className="avatar user-avatar">👧🏻</span>
+            <span className={`${styles.avatar} ${styles.userAvatar}`}>👧🏻</span>
           )}
         </div>
       )}
       {message.attachments && message.attachments.length > 0 && (
         <UserAttachmentsView attachments={message.attachments} deskContext={message.deskContext} />
       )}
-      <div className="message user">
+      <div className={`${styles.message} ${styles.messageUser}`}>
         {message.textHtml && <MarkdownContent html={message.textHtml} />}
       </div>
     </div>
@@ -64,13 +64,13 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
   }, []);
 
   return (
-    <div className="user-attachments">
+    <div className={styles.userAttachments}>
       {attachments.map((att, i) => {
         if (isImage(att) && att.base64Data) {
           return (
             <img
               key={i}
-              className="attach-image"
+              className={styles.attachImage}
               src={`data:${att.mimeType || 'image/png'};base64,${att.base64Data}`}
               alt={att.name}
               loading="lazy"
@@ -81,7 +81,7 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
           return (
             <img
               key={i}
-              className="attach-image"
+              className={styles.attachImage}
               src={hanaUrl(`/api/desk/file?path=${encodeURIComponent(att.path)}`)}
               alt={att.name}
               loading="lazy"
@@ -90,8 +90,8 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
         }
         const ext = att.name.split('.').pop() || '';
         return (
-          <div key={i} className="attach-file">
-            <span className="attach-file-icon">
+          <div key={i} className={styles.attachFile}>
+            <span className={styles.attachFileIcon}>
               {att.isDir ? (
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
@@ -103,17 +103,17 @@ const UserAttachmentsView = memo(function UserAttachmentsView({ attachments, des
                 </svg>
               )}
             </span>
-            <span className="attach-file-name">{att.name}</span>
-            {ext && <span className="attach-file-ext">{ext}</span>}
+            <span className={styles.attachFileName}>{att.name}</span>
+            {ext && <span className={styles.attachFileExt}>{ext}</span>}
           </div>
         );
       })}
       {deskContext && (
-        <div className="attach-file attach-desk">
+        <div className={styles.attachFile}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
-          <span className="attach-file-name">{(window.t ?? ((p: string) => p))('sidebar.jian')} ({deskContext.fileCount})</span>
+          <span className={styles.attachFileName}>{(window.t ?? ((p: string) => p))('sidebar.jian')} ({deskContext.fileCount})</span>
         </div>
       )}
     </div>

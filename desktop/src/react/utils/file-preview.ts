@@ -8,7 +8,6 @@ import { useStore } from '../stores';
 import type { Artifact } from '../types';
 import { openPreview } from '../stores/artifact-actions';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ── 可在 Artifacts 面板中预览的文件类型 ──
 
@@ -31,7 +30,7 @@ export const BINARY_PREVIEW_TYPES = new Set(['image', 'pdf']);
 export async function readFileForPreview(filePath: string, ext: string): Promise<string | null> {
   const previewType = PREVIEWABLE_EXTS[ext];
   if (!previewType) return null;
-  const p = (window as any).platform;
+  const p = window.platform;
   if (!p) return null;
   if (previewType === 'docx') return p.readDocxHtml?.(filePath) ?? null;
   if (previewType === 'xlsx') return p.readXlsxHtml?.(filePath) ?? null;
@@ -48,7 +47,7 @@ export async function openFilePreview(filePath: string, label: string, ext: stri
   if (ext === 'skill') {
     // .skill 文件可能是纯文本也可能是 zip，先尝试读取内容在预览面板展示
     const name = fileName.replace(/\.skill$/, '');
-    const content = await (window as any).platform?.readFile?.(filePath);
+    const content = await window.platform?.readFile?.(filePath);
     if (content != null) {
       const body = content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '');
       const artifact: Artifact = {
@@ -62,7 +61,7 @@ export async function openFilePreview(filePath: string, label: string, ext: stri
       return;
     }
     // 读取失败（可能是 zip 格式），尝试 skill viewer
-    (window as any).platform?.openSkillViewer?.({ skillPath: filePath });
+    window.platform?.openSkillViewer?.({ skillPath: filePath });
     return;
   }
 
@@ -103,7 +102,7 @@ export async function openFilePreview(filePath: string, label: string, ext: stri
  * 打开 Skill 预览：读取 skill 文件 → 创建 markdown Artifact → 打开预览面板
  */
 export async function openSkillPreview(skillName: string, skillFilePath: string): Promise<void> {
-  const content = await (window as any).platform?.readFile?.(skillFilePath);
+  const content = await window.platform?.readFile?.(skillFilePath);
   if (content != null) {
     const body = content.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '');
     const artifact: Artifact = {

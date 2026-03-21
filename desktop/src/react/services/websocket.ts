@@ -5,7 +5,6 @@
  * 不依赖 ctx 注入，不依赖 React 组件生命周期。
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { handleServerMessage, applyStreamingStatus } from './ws-message-handler';
 import { requestStreamResume, injectHandlers } from './stream-resume';

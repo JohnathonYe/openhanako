@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSettingsStore } from './store';
 import { t } from './helpers';
+import styles from './Settings.module.css';
 
 function TabIcon({ d }: { d: string }) {
   return (
@@ -23,11 +24,11 @@ export function SettingsNav() {
   const { activeTab, set } = useSettingsStore();
 
   return (
-    <nav className="settings-nav">
+    <nav className={styles['settings-nav']}>
       {TAB_ITEMS.map(item => (
         <button
           key={item.id}
-          className={`settings-nav-item${activeTab === item.id ? ' active' : ''}`}
+          className={`${styles['settings-nav-item']}${activeTab === item.id ? ' ' + styles['active'] : ''}`}
           data-tab={item.id}
           onClick={() => set({ activeTab: item.id })}
         >

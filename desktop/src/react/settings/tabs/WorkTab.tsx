@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../store';
 import { t, autoSaveConfig } from '../helpers';
 import { Toggle } from '../widgets/Toggle';
+import styles from '../Settings.module.css';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 
 export function WorkTab() {
   const { settingsConfig, showToast } = useSettingsStore();
@@ -51,30 +52,30 @@ export function WorkTab() {
   };
 
   return (
-    <div className="settings-tab-content active" data-tab="work">
+    <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="work">
       {/* 主文件夹 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.work.homeFolder')}</h2>
-        <p className="settings-desc settings-desc-compact">
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.work.homeFolder')}</h2>
+        <p className={`${styles['settings-desc']} ${styles['settings-desc-compact']}`}>
           {t('settings.work.homeFolderDesc')}
         </p>
-        <div className="settings-folder-picker">
+        <div className={styles['settings-folder-picker']}>
           <input
             type="text"
-            className="settings-input settings-folder-input"
+            className={`${styles['settings-input']} ${styles['settings-folder-input']}`}
             readOnly
             value={homeFolder}
             placeholder={t('settings.work.homeFolderPlaceholder')}
             onClick={pickHomeFolder}
           />
-          <button className="settings-folder-browse" onClick={pickHomeFolder}>
+          <button className={styles['settings-folder-browse']} onClick={pickHomeFolder}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
           </button>
           {homeFolder && (
             <button
-              className="settings-folder-clear"
+              className={styles['settings-folder-clear']}
               onClick={clearHomeFolder}
               title={t('settings.work.homeFolderClear')}
             >
@@ -88,40 +89,40 @@ export function WorkTab() {
       </section>
 
       {/* 巡检 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.work.title')}</h2>
-        <div className="tool-caps-group">
-          <div className="tool-caps-item">
-            <div className="tool-caps-label">
-              <span className="tool-caps-name">{t('settings.work.heartbeatEnabled')}</span>
-              <span className="tool-caps-desc">{t('settings.work.heartbeatDesc')}</span>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.work.title')}</h2>
+        <div className={styles['tool-caps-group']}>
+          <div className={styles['tool-caps-item']}>
+            <div className={styles['tool-caps-label']}>
+              <span className={styles['tool-caps-name']}>{t('settings.work.heartbeatEnabled')}</span>
+              <span className={styles['tool-caps-desc']}>{t('settings.work.heartbeatDesc')}</span>
             </div>
             <Toggle
               on={hbEnabled}
               onChange={toggleHeartbeat}
             />
           </div>
-          <div className={`tool-caps-item${hbEnabled ? '' : ' settings-disabled'}`}>
-            <div className="tool-caps-label">
-              <span className="tool-caps-name">{t('settings.work.heartbeatInterval')}</span>
+          <div className={`${styles['tool-caps-item']}${hbEnabled ? '' : ' settings-disabled'}`}>
+            <div className={styles['tool-caps-label']}>
+              <span className={styles['tool-caps-name']}>{t('settings.work.heartbeatInterval')}</span>
             </div>
-            <div className="settings-input-group">
+            <div className={styles['settings-input-group']}>
               <input
                 type="number"
-                className="settings-input small"
+                className={`${styles['settings-input']} ${styles['small']}`}
                 min={1}
                 max={120}
                 value={hbInterval}
                 disabled={!hbEnabled}
                 onChange={(e) => setHbInterval(parseInt(e.target.value) || 15)}
               />
-              <span className="settings-input-unit">{t('settings.work.heartbeatUnit')}</span>
+              <span className={styles['settings-input-unit']}>{t('settings.work.heartbeatUnit')}</span>
             </div>
           </div>
-          <div className="tool-caps-item">
-            <div className="tool-caps-label">
-              <span className="tool-caps-name">{t('settings.work.cronAutoApprove')}</span>
-              <span className="tool-caps-desc">{t('settings.work.cronAutoApproveDesc')}</span>
+          <div className={styles['tool-caps-item']}>
+            <div className={styles['tool-caps-label']}>
+              <span className={styles['tool-caps-name']}>{t('settings.work.cronAutoApprove')}</span>
+              <span className={styles['tool-caps-desc']}>{t('settings.work.cronAutoApproveDesc')}</span>
             </div>
             <Toggle
               on={cronAutoApprove}
@@ -131,8 +132,8 @@ export function WorkTab() {
         </div>
       </section>
 
-      <div className="settings-section-footer">
-        <button className="settings-save-btn-sm" onClick={saveWork}>
+      <div className={styles['settings-section-footer']}>
+        <button className={styles['settings-save-btn-sm']} onClick={saveWork}>
           {t('settings.save')}
         </button>
       </div>

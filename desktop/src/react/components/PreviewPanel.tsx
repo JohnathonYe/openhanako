@@ -18,6 +18,7 @@ import { fileIconSvg } from '../utils/icons';
 import { updateLayout } from './SidebarLayout';
 import { ArtifactEditor } from './ArtifactEditor';
 import type { Artifact } from '../types';
+import previewStyles from './Preview.module.css';
 
 const EDITABLE_TYPES = new Set(['markdown', 'code', 'csv']);
 
@@ -223,15 +224,15 @@ export function PreviewPanel() {
   }, [artifact]);
 
   return (
-    <div className={`preview-panel${previewOpen ? '' : ' collapsed'}`} id="previewPanel">
+    <div className={`${previewStyles.previewPanel}${previewOpen ? '' : ` ${previewStyles.previewPanelCollapsed}`}`} id="previewPanel">
       <div className="resize-handle resize-handle-left" id="previewResizeHandle"></div>
-      <div className="preview-panel-inner">
-        <div className="preview-panel-header">
-          <span className="preview-panel-title" id="previewTitle">
+      <div className={previewStyles.previewPanelInner}>
+        <div className={previewStyles.previewPanelHeader}>
+          <span className={previewStyles.previewPanelTitle} id="previewTitle">
             {artifact?.title ?? ''}
           </span>
-          <div className="preview-panel-actions">
-            <button className="preview-panel-action-btn preview-panel-copy-btn" onClick={handleCopy}>
+          <div className={previewStyles.previewPanelActions}>
+            <button className={`${previewStyles.previewPanelActionBtn} ${previewStyles.previewPanelCopyBtn}`} onClick={handleCopy}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
@@ -239,7 +240,7 @@ export function PreviewPanel() {
               <span>{copyLabel ?? (window.t ?? ((p: string) => p))('attach.copy')}</span>
             </button>
             {editable && (
-              <button className="preview-panel-action-btn" title="Open in window" onClick={handleDetach}>
+              <button className={previewStyles.previewPanelActionBtn} title="Open in window" onClick={handleDetach}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="15 3 21 3 21 9"></polyline>
                   <line x1="10" y1="14" x2="21" y2="3"></line>
@@ -247,7 +248,7 @@ export function PreviewPanel() {
                 </svg>
               </button>
             )}
-            <button className="preview-panel-action-btn" title="Close" onClick={closePreview}>
+            <button className={previewStyles.previewPanelActionBtn} title="Close" onClick={closePreview}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18"></line>
                 <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -255,7 +256,7 @@ export function PreviewPanel() {
             </button>
           </div>
         </div>
-        <div className="preview-panel-body" id="previewBody" ref={bodyRef}>
+        <div className={previewStyles.previewPanelBody} id="previewBody" ref={bodyRef}>
           {previewOpen && artifact && editable && (
             <ArtifactEditor
               content={artifact.content}

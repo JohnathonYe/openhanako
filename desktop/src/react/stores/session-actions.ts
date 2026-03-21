@@ -5,7 +5,7 @@
  * 不依赖 ctx 注入，不持有闭包状态（除 _switchVersion 防竞争）。
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- store partial patch + API 响应 JSON */
 
 import { useStore } from './index';
 import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
@@ -234,7 +234,7 @@ export async function ensureSession(): Promise<boolean> {
         const ag = s.agents.find((a: any) => a.id === data.agentId);
         if (ag?.yuan) patch.agentYuan = ag.yuan;
         patch.agentAvatarUrl = null;
-        (window as any).i18n.defaultName = data.agentName || s.agentName;
+        window.i18n.defaultName = data.agentName || s.agentName;
         // 异步刷新头像
         hanaFetch('/api/health').then((r: Response) => r.json()).then((d: any) => {
           loadAvatarsAction(d.avatars);
@@ -288,7 +288,7 @@ export async function archiveSession(path: string): Promise<void> {
     const data = await res.json();
     if (data.error) {
       console.error('[session] archive failed:', data.error);
-      showSidebarToast((window as any).t('session.archiveFailed'));
+      showSidebarToast(window.t('session.archiveFailed'));
       return;
     }
 
@@ -308,7 +308,7 @@ export async function archiveSession(path: string): Promise<void> {
     }
   } catch (err) {
     console.error('[session] archive failed:', err);
-    showSidebarToast((window as any).t('session.archiveFailed'));
+    showSidebarToast(window.t('session.archiveFailed'));
   }
 }
 

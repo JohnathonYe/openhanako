@@ -22,7 +22,11 @@ import { InputArea } from './components/InputArea';
 import { SessionList } from './components/SessionList';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { ChatArea } from './components/chat/ChatArea';
-import { ChannelsPanel, ChannelList, ChannelMessages, ChannelMembers, ChannelInput, ChannelReadonly, ChannelCreate } from './components/ChannelsPanel';
+import { ChannelsPanel, ChannelMessages, ChannelMembers, ChannelInput, ChannelReadonly } from './components/ChannelsPanel';
+import { ChannelTabBar } from './components/channels/ChannelTabBar';
+import { ChannelListSidebar } from './components/channels/ChannelList';
+import { ChannelHeader } from './components/channels/ChannelHeader';
+import { ChannelCreateOverlay } from './components/channels/ChannelCreateOverlay';
 import { SidebarLayout, updateLayout, toggleSidebar } from './components/SidebarLayout';
 import { FloatPreviewCard, useFloatCard } from './components/FloatPreviewCard';
 import { useSidebarResize } from './hooks/use-sidebar-resize';
@@ -44,7 +48,7 @@ declare const i18n: {
 };
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- 全局 bootstrap：platform/IPC callback 签名含 any */
 
 // ── 主题 + drag 阻止 ──
 initTheme();
@@ -58,7 +62,7 @@ window.__hanaLog = function (level: string, module: string, message: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ level, module, message }),
-  }).catch(() => {});
+  }).catch(err => console.warn('[hanaLog] log upload failed:', err));
 };
 
 // ── 全局错误捕获 ──
@@ -165,10 +169,10 @@ async function init(): Promise<void> {
           agentId: data.agentId,
         });
         loadSessions();
-        (window as any).__loadDeskSkills?.();
+        window.__loadDeskSkills?.();
         break;
       case 'skills-changed':
-        (window as any).__loadDeskSkills?.();
+        window.__loadDeskSkills?.();
         break;
       case 'locale-changed':
         i18n.load(data.locale).then(() => {
@@ -200,7 +204,7 @@ async function init(): Promise<void> {
   });
 
   // 20. Skill Viewer overlay（主进程 / 设置窗口 → 渲染进程）
-  (window as any).hana?.onShowSkillViewer?.((data: any) => {
+  window.hana?.onShowSkillViewer?.((data: any) => {
     useStore.setState({ skillViewerData: data });
   });
 
@@ -292,6 +296,9 @@ function App() {
   const jianOpen = useStore(s => s.jianOpen);
   const currentTab = useStore(s => s.currentTab);
   const browserRunning = useStore(s => s.browserRunning);
+  const welcomeVisible = useStore(s => s.welcomeVisible);
+  const currentSessionPath = useStore(s => s.currentSessionPath);
+  const hasPanels = !welcomeVisible && !!currentSessionPath;
   const { floatCard, show: showFloat, scheduleHide: scheduleFloatHide, cancelHide: cancelFloatHide, hide: hideFloat } = useFloatCard();
 
   useEffect(() => {
@@ -322,14 +329,7 @@ function App() {
             <line x1="9" y1="3" x2="9" y2="21"></line>
           </svg>
         </button>
-        <div className="tb-tabs" id="tbTabs">
-          <div className="tb-tabs-slider" id="tbSlider"></div>
-          <button className="tb-tab active" data-tab="chat">{t('channel.chatTab')}</button>
-          <button className="tb-tab" data-tab="channels">
-            {t('channel.tab')}
-            <span className="tb-tab-badge hidden" id="channelTabBadge"></span>
-          </button>
-        </div>
+        <ChannelTabBar />
         <button
           className={`tb-toggle tb-toggle-right${jianOpen ? ' active' : ''}`}
           id="tbToggleRight"
@@ -351,7 +351,7 @@ function App() {
         {/* Left sidebar */}
         <aside className={`sidebar${sidebarOpen ? '' : ' collapsed'}`} id="sidebar">
           <div className="sidebar-inner">
-            <div className="sidebar-chat-content" id="sidebarChatContent">
+            <div className={`sidebar-chat-content${currentTab === 'chat' ? '' : ' hidden'}`}>
               <div className="sidebar-header">
                 <span className="sidebar-title">{t('sidebar.title')}</span>
                 <div className="sidebar-header-actions">
@@ -410,35 +410,8 @@ function App() {
             </div>
 
             {/* 频道 tab 内容 */}
-            <div className="sidebar-channel-content hidden" id="sidebarChannelContent">
-              <div className="sidebar-header">
-                <span className="sidebar-title">{t('channel.tab')} <span className="beta-badge">Beta</span></span>
-                <div className="sidebar-header-actions">
-                  <button className="sidebar-action-btn" id="channelCreateBtn" title={t('channel.createTitle')}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="12" y1="5" x2="12" y2="19"></line>
-                      <line x1="5" y1="12" x2="19" y2="12"></line>
-                    </svg>
-                  </button>
-                  <button className="sidebar-action-btn" id="channelCollapseBtn" title="">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="15 6 9 12 15 18"></polyline>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-              <div className="channel-list-wrap" id="channelListWrap">
-                <div className="channel-list" id="channelList">
-                  <ChannelList />
-                </div>
-                <div className="channel-disabled-overlay hidden" id="channelDisabledOverlay">
-                  <span>{t('channel.disabled')}</span>
-                </div>
-                <div className="channel-toggle-bar">
-                  <span className="channel-toggle-bar-label">{t('channel.toggleLabel')}</span>
-                  <button className="hana-toggle on" id="channelToggle"></button>
-                </div>
-              </div>
+            <div className={`sidebar-channel-content${currentTab === 'channels' ? '' : ' hidden'}`}>
+              <ChannelListSidebar />
             </div>
           </div>
           <div className="resize-handle resize-handle-right" id="sidebarResizeHandle"></div>
@@ -447,47 +420,21 @@ function App() {
         {/* Main content */}
         <MainContentDrag>
 
-          <div className="chat-area" id="chatArea">
+          <div className={`chat-area${currentTab === 'chat' ? '' : ' hidden'}${hasPanels ? ' has-panels' : ''}`}>
             <WelcomeContainer />
             <ChatArea />
           </div>
 
-          <div className="input-area">
+          <div className={`input-area${currentTab === 'chat' ? '' : ' hidden'}`}>
             <InputArea />
           </div>
 
-          <div className="channel-view" id="channelView">
-            <div className="channel-header" id="channelHeader">
-              <div className="channel-header-info">
-                <span className="channel-header-name" id="channelHeaderName"></span>
-                <span className="channel-header-members" id="channelHeaderMembers"></span>
-              </div>
-              <div className="channel-header-actions">
-                <button className="channel-header-action-btn" id="channelInfoToggle" title={t('channel.info')}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="16" x2="12" y2="12"></line>
-                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                  </svg>
-                </button>
-                <button className="channel-header-action-btn" id="channelMenuBtn" title={t('common.more')}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <circle cx="12" cy="5" r="1"></circle>
-                    <circle cx="12" cy="12" r="1"></circle>
-                    <circle cx="12" cy="19" r="1"></circle>
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div className="channel-messages" id="channelMessages">
+          <div className={`channel-view${currentTab === 'channels' ? ' active' : ''}`}>
+            <ChannelHeader />
+            <div className="channel-messages">
               <ChannelMessages />
             </div>
-            <div className="channel-input-area hidden" id="channelInputArea">
-              <ChannelInput />
-            </div>
-            <div className="channel-readonly-notice hidden" id="channelReadonlyNotice">
-              <ChannelReadonly />
-            </div>
+            <ChannelInputArea />
           </div>
 
           {/* Floating panels render into main-content */}
@@ -502,23 +449,12 @@ function App() {
         <aside className={`jian-sidebar${jianOpen ? '' : ' collapsed'}`} id="jianSidebar">
           <div className="resize-handle resize-handle-left" id="jianResizeHandle"></div>
           <div className="jian-sidebar-inner">
-            <div className="jian-chat-content" id="jianChatContent">
+            <div className={`jian-chat-content${currentTab === 'chat' ? '' : ' hidden'}`}>
               <DeskSection />
             </div>
 
-            <div className="jian-channel-content hidden" id="jianChannelContent">
-              <div className="jian-card">
-                <div className="channel-info-section">
-                  <div className="channel-info-label">{t('channel.info')}</div>
-                  <div className="channel-info-name" id="channelInfoName"></div>
-                </div>
-                <div className="channel-info-section">
-                  <div className="channel-info-label">{t('channel.members')}</div>
-                  <div className="channel-members-list" id="channelMembersList">
-                    <ChannelMembers />
-                  </div>
-                </div>
-              </div>
+            <div className={`jian-channel-content${currentTab === 'channels' ? '' : ' hidden'}`}>
+              <JianChannelInfo />
             </div>
           </div>
         </aside>
@@ -528,9 +464,7 @@ function App() {
       <ConnectionStatus />
 
       {/* Channel create overlay */}
-      <div className="agent-create-overlay" id="channelCreateOverlay">
-        <ChannelCreate />
-      </div>
+      <ChannelCreateOverlay />
 
       {/* Skill viewer overlay */}
       <Suspense fallback={null}><SkillViewerOverlay /></Suspense>
@@ -625,6 +559,45 @@ function ConnectionStatus() {
     <div className={`connection-status${connected ? ' connected' : ''}`}>
       <span className="status-dot"></span>
       <span className="status-text">{statusKey ? t(statusKey, statusVars) : ''}</span>
+    </div>
+  );
+}
+
+function ChannelInputArea() {
+  const currentChannel = useStore(s => s.currentChannel);
+  const isDM = useStore(s => s.channelIsDM);
+
+  if (!currentChannel) return null;
+
+  if (isDM) {
+    return (
+      <div className="channel-readonly-notice">
+        <ChannelReadonly />
+      </div>
+    );
+  }
+
+  return (
+    <div className="channel-input-area">
+      <ChannelInput />
+    </div>
+  );
+}
+
+function JianChannelInfo() {
+  const channelInfoName = useStore(s => s.channelInfoName);
+  return (
+    <div className="jian-card">
+      <div className="channel-info-section">
+        <div className="channel-info-label">{t('channel.info')}</div>
+        <div className="channel-info-name">{channelInfoName}</div>
+      </div>
+      <div className="channel-info-section">
+        <div className="channel-info-label">{t('channel.members')}</div>
+        <div className="channel-members-list">
+          <ChannelMembers />
+        </div>
+      </div>
     </div>
   );
 }

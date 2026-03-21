@@ -8,7 +8,7 @@ import { useStore } from './index';
 import { updateLayout } from '../components/SidebarLayout';
 import type { Artifact } from '../types';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- IPC callback data 及 store setState */
 
 let _artifactCounter = 0;
 

@@ -4,8 +4,9 @@ import { hanaFetch } from '../api';
 import { t, autoSaveConfig } from '../helpers';
 import { Toggle } from '../widgets/Toggle';
 import { loadSettingsConfig } from '../actions';
+import styles from '../Settings.module.css';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 
 interface ExternalPathsData {
   configured: string[];
@@ -76,7 +77,7 @@ export function SkillsTab() {
   // 后台翻译技能名
   const [nameHints, setNameHints] = useState<Record<string, string>>({});
   useEffect(() => {
-    const locale = (window as any).i18n?.locale || 'zh';
+    const locale = window.i18n?.locale || 'zh';
     if (locale === 'en' || visible.length === 0) return;
     const names = visible.map(s => s.name).filter(n => !nameHints[n]);
     if (names.length === 0) return;
@@ -87,8 +88,8 @@ export function SkillsTab() {
     })
       .then(r => r.json())
       .then(map => { if (map && typeof map === 'object') setNameHints(prev => ({ ...prev, ...map })); })
-      .catch(() => {});
-  }, [visible.length]); // eslint-disable-line react-hooks/exhaustive-deps
+      .catch(err => console.warn('[skills] translate failed:', err));
+  }, [visible.length]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅在技能数量变化时触发翻译，避免 nameHints/locale 造成循环
 
   const installSkill = async () => {
     const selectedPath = await platform?.selectSkill?.();
@@ -159,7 +160,7 @@ export function SkillsTab() {
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
-    (e.currentTarget as HTMLElement).classList.remove('drag-over');
+    (e.currentTarget as HTMLElement).classList.remove(styles['drag-over']);
     const file = e.dataTransfer.files[0];
     if (!file) return;
     const filePath = platform?.getFilePath?.(file) || (file as any)?.path;
@@ -241,12 +242,12 @@ export function SkillsTab() {
   );
 
   return (
-    <div className="settings-tab-content active" data-tab="skills">
-      <section className="settings-section">
-        <div className="settings-section-header">
-          <h2 className="settings-section-title">{t('settings.skills.title')}</h2>
+    <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="skills">
+      <section className={styles['settings-section']}>
+        <div className={styles['settings-section-header']}>
+          <h2 className={styles['settings-section-title']}>{t('settings.skills.title')}</h2>
           <button
-            className="settings-icon-btn"
+            className={styles['settings-icon-btn']}
             title={t('settings.skills.reload')}
             onClick={reloadSkills}
             disabled={reloading}
@@ -254,7 +255,7 @@ export function SkillsTab() {
             <svg
               width="14" height="14" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className={reloading ? 'spin' : ''}
+              className={reloading ? styles['spin'] : ''}
             >
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
@@ -263,10 +264,10 @@ export function SkillsTab() {
         </div>
 
         <div
-          className="skills-dropzone"
+          className={styles['skills-dropzone']}
           onClick={installSkill}
-          onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).classList.add('drag-over'); }}
-          onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove('drag-over')}
+          onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).classList.add(styles['drag-over']); }}
+          onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove(styles['drag-over'])}
           onDrop={handleDrop}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -278,9 +279,9 @@ export function SkillsTab() {
         </div>
 
         {userSkills.length === 0 ? (
-          <p className="settings-desc skills-empty">{t('settings.skills.noUser')}</p>
+          <p className={`${styles['settings-desc']} ${styles['skills-empty']}`}>{t('settings.skills.noUser')}</p>
         ) : (
-          <div className="skills-list-block">
+          <div className={styles['skills-list-block']}>
             {userSkills.map(skill => (
               <SkillRow
                 key={skill.name}
@@ -295,11 +296,11 @@ export function SkillsTab() {
       </section>
 
       {/* 自学 Skills：权限 + 已学技能 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.toolCaps.title')}</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.toolCaps.title')}</h2>
 
         {learnedSkills.length > 0 && (
-          <div className="skills-list-block skills-list-block-spaced">
+          <div className={`${styles['skills-list-block']} ${styles['skills-list-block-spaced']}`}>
             {learnedSkills.map(skill => (
               <SkillRow
                 key={skill.name}
@@ -312,11 +313,11 @@ export function SkillsTab() {
           </div>
         )}
 
-        <div className="tool-caps-group">
-          <div className="tool-caps-item">
-            <div className="tool-caps-label">
-              <span className="tool-caps-name">{t('settings.skills.learnCreate')}</span>
-              <span className="tool-caps-desc">{t('settings.skills.learnCreateDesc')}</span>
+        <div className={styles['tool-caps-group']}>
+          <div className={styles['tool-caps-item']}>
+            <div className={styles['tool-caps-label']}>
+              <span className={styles['tool-caps-name']}>{t('settings.skills.learnCreate')}</span>
+              <span className={styles['tool-caps-desc']}>{t('settings.skills.learnCreateDesc')}</span>
             </div>
             <Toggle
               on={learnEnabled}
@@ -337,10 +338,10 @@ export function SkillsTab() {
             />
           </div>
           {learnEnabled && (
-            <div className="tool-caps-item tool-caps-sub">
-              <div className="tool-caps-label">
-                <span className="tool-caps-name">{t('settings.skills.fetchRemote')}</span>
-                <span className="tool-caps-desc warn">{t('settings.skills.fetchRemoteDesc')}</span>
+            <div className={`${styles['tool-caps-item']} ${styles['tool-caps-sub']}`}>
+              <div className={styles['tool-caps-label']}>
+                <span className={styles['tool-caps-name']}>{t('settings.skills.fetchRemote')}</span>
+                <span className={`${styles['tool-caps-desc']} ${styles['warn']}`}>{t('settings.skills.fetchRemoteDesc')}</span>
               </div>
               <Toggle
                 on={githubEnabled}
@@ -349,10 +350,10 @@ export function SkillsTab() {
             </div>
           )}
           {learnEnabled && (
-            <div className="tool-caps-item tool-caps-sub">
-              <div className="tool-caps-label">
-                <span className="tool-caps-name">{t('settings.skills.safetyReview')}</span>
-                <span className="tool-caps-desc">{t('settings.skills.safetyReviewDesc')}</span>
+            <div className={`${styles['tool-caps-item']} ${styles['tool-caps-sub']}`}>
+              <div className={styles['tool-caps-label']}>
+                <span className={styles['tool-caps-name']}>{t('settings.skills.safetyReview')}</span>
+                <span className={styles['tool-caps-desc']}>{t('settings.skills.safetyReviewDesc')}</span>
               </div>
               <Toggle
                 on={safetyReviewEnabled}
@@ -371,15 +372,15 @@ export function SkillsTab() {
             </div>
           )}
         </div>
-        <p className="settings-hint">{t('settings.skills.learnHint')}</p>
+        <p className={styles['settings-hint']}>{t('settings.skills.learnHint')}</p>
       </section>
 
       {/* 兼容技能 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.skills.compatTitle')}</h2>
-        <p className="settings-desc">{t('settings.skills.compatDesc')}</p>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.skills.compatTitle')}</h2>
+        <p className={styles['settings-desc']}>{t('settings.skills.compatDesc')}</p>
 
-        <div className="compat-paths-group">
+        <div className={styles['compat-paths-group']}>
           {discoveredPaths.map(d => (
             <CompatPathDrawer
               key={d.dirPath}
@@ -406,7 +407,7 @@ export function SkillsTab() {
               onRemove={removeExternalPath}
             />
           ))}
-          <button className="compat-add-path" onClick={addExternalPath}>
+          <button className={styles['compat-add-path']} onClick={addExternalPath}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
@@ -489,10 +490,10 @@ function SkillRow({ skill, nameHint, onDelete, onToggle }: {
 
   return (
     <div
-      className="skills-list-item"
+      className={styles['skills-list-item']}
       onClick={() => {
         if (skill.baseDir) {
-          (window as any).platform?.openSkillViewer?.({
+          window.platform?.openSkillViewer?.({
             name: skill.name,
             baseDir: skill.baseDir,
             filePath: skill.filePath,
@@ -501,16 +502,16 @@ function SkillRow({ skill, nameHint, onDelete, onToggle }: {
         }
       }}
     >
-      <div className="skills-list-info">
-        <span className="skills-list-name">
+      <div className={styles['skills-list-info']}>
+        <span className={styles['skills-list-name']}>
           {skill.name}
-          {nameHint && <span className="skills-list-name-hint">{nameHint}</span>}
+          {nameHint && <span className={styles['skills-list-name-hint']}>{nameHint}</span>}
         </span>
-        <span className="skills-list-desc">{displayDesc}</span>
+        <span className={styles['skills-list-desc']}>{displayDesc}</span>
       </div>
-      <div className="skills-list-actions">
+      <div className={styles['skills-list-actions']}>
         <button
-          className="skill-card-delete"
+          className={styles['skill-card-delete']}
           title={t('settings.skills.delete')}
           onClick={(e) => { e.stopPropagation(); onDelete(skill.name); }}
         >
@@ -540,10 +541,10 @@ function ExternalSkillRow({ skill, nameHint, onToggle }: {
 
   return (
     <div
-      className="skills-list-item"
+      className={styles['skills-list-item']}
       onClick={() => {
         if (skill.baseDir) {
-          (window as any).platform?.openSkillViewer?.({
+          window.platform?.openSkillViewer?.({
             name: skill.name,
             baseDir: skill.baseDir,
             filePath: skill.filePath,
@@ -552,14 +553,14 @@ function ExternalSkillRow({ skill, nameHint, onToggle }: {
         }
       }}
     >
-      <div className="skills-list-info">
-        <span className="skills-list-name">
+      <div className={styles['skills-list-info']}>
+        <span className={styles['skills-list-name']}>
           {skill.name}
-          {nameHint && <span className="skills-list-name-hint">{nameHint}</span>}
+          {nameHint && <span className={styles['skills-list-name-hint']}>{nameHint}</span>}
         </span>
-        <span className="skills-list-desc">{displayDesc}</span>
+        <span className={styles['skills-list-desc']}>{displayDesc}</span>
       </div>
-      <div className="skills-list-actions">
+      <div className={styles['skills-list-actions']}>
         <button
           className={`hana-toggle${skill.enabled ? ' on' : ''}`}
           onClick={(e) => { e.stopPropagation(); onToggle(skill.name, !skill.enabled); }}
@@ -584,34 +585,34 @@ function CompatPathDrawer({ dirPath, label, exists, isCustom, skills, nameHints,
   const skillCount = skills.length;
 
   return (
-    <div className="compat-drawer">
+    <div className={styles['compat-drawer']}>
       <button
-        className={`compat-drawer-header${!exists ? ' disabled' : ''}`}
+        className={`${styles['compat-drawer-header']}${!exists  ? ' ' + styles['disabled'] : ''}`}
         onClick={() => { if (exists && skillCount > 0) setOpen(prev => !prev); }}
       >
         <svg
-          className={`compat-drawer-chevron${open ? ' open' : ''}`}
+          className={`${styles['compat-drawer-chevron']}${open  ? ' ' + styles['open'] : ''}`}
           width="10" height="10" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
           style={{ opacity: exists && skillCount > 0 ? 1 : 0.2 }}
         >
           <polyline points="9 18 15 12 9 6" />
         </svg>
-        <div className="compat-drawer-info">
-          <span className="compat-drawer-label">{displayLabel}</span>
-          {isCustom && <span className="compat-drawer-path">{dirPath}</span>}
+        <div className={styles['compat-drawer-info']}>
+          <span className={styles['compat-drawer-label']}>{displayLabel}</span>
+          {isCustom && <span className={styles['compat-drawer-path']}>{dirPath}</span>}
         </div>
-        <div className="compat-drawer-meta">
+        <div className={styles['compat-drawer-meta']}>
           {!exists ? (
-            <span className="compat-path-badge muted">{t('settings.skills.compatNotInstalled')}</span>
+            <span className={`${styles['compat-path-badge']} ${styles['muted']}`}>{t('settings.skills.compatNotInstalled')}</span>
           ) : skillCount > 0 ? (
-            <span className="compat-path-badge">{skillCount}</span>
+            <span className={styles['compat-path-badge']}>{skillCount}</span>
           ) : (
-            <span className="compat-path-badge muted">0</span>
+            <span className={`${styles['compat-path-badge']} ${styles['muted']}`}>0</span>
           )}
           {isCustom && (
             <button
-              className="compat-path-remove"
+              className={styles['compat-path-remove']}
               onClick={(e) => { e.stopPropagation(); onRemove(dirPath); }}
               title={t('settings.skills.compatRemove')}
               style={{ opacity: 1 }}
@@ -624,7 +625,7 @@ function CompatPathDrawer({ dirPath, label, exists, isCustom, skills, nameHints,
         </div>
       </button>
       {open && skillCount > 0 && (
-        <div className="compat-drawer-skills">
+        <div className={styles['compat-drawer-skills']}>
           {skills.map(skill => (
             <ExternalSkillRow
               key={skill.name}

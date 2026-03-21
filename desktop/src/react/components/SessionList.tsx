@@ -13,8 +13,8 @@ import { formatSessionDate } from '../utils/format';
 import { switchSession, archiveSession } from '../stores/session-actions';
 import type { Session, Agent } from '../types';
 import { yuanFallbackAvatar } from '../utils/agent-helpers';
+import styles from './SessionList.module.css';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ── 主组件 ──
 
@@ -76,11 +76,11 @@ function SessionListInner() {
     hanaFetch('/api/browser/sessions')
       .then(r => r.json())
       .then(data => setBrowserSessions(data || {}))
-      .catch(() => {});
+      .catch(err => console.warn('[sessions] fetch browser sessions failed:', err));
   }, [sessions]);
 
   if (sessions.length === 0) {
-    return <div className="session-empty">{t('sidebar.empty')}</div>;
+    return <div className={styles.sessionEmpty}>{t('sidebar.empty')}</div>;
   }
 
   const grouped = groupSessionsByDate(sessions);
@@ -89,7 +89,7 @@ function SessionListInner() {
     <>
       {grouped.map(({ key, items }) => (
         <Fragment key={key}>
-          <div className="session-date-label">{t(`time.${key}`)}</div>
+          <div className={styles.sessionDateLabel}>{t(`time.${key}`)}</div>
           {items.map(s => (
             <SessionItem
               key={s.path}
@@ -137,21 +137,21 @@ function SessionItem({ session: s, isActive, isStreaming, agents, browserUrl }: 
 
   return (
     <button
-      className={'session-item' + (isActive ? ' active' : '')}
+      className={`${styles.sessionItem}${isActive ? ` ${styles.sessionItemActive}` : ''}`}
       data-session-path={s.path}
       onClick={handleClick}
     >
-      <div className="session-item-header">
+      <div className={styles.sessionItemHeader}>
         {s.agentId && (
           <AgentBadge agentId={s.agentId} agentName={s.agentName} agents={agents} />
         )}
-        {isStreaming && <span className="session-streaming-dot" />}
-        <div className="session-item-title">
+        {isStreaming && <span className={styles.sessionStreamingDot} />}
+        <div className={styles.sessionItemTitle}>
           {s.title || s.firstMessage || t('session.untitled')}
         </div>
       </div>
 
-      <div className="session-archive-btn" title="Archive" onClick={handleArchive}>
+      <div className={styles.sessionArchiveBtn} title="Archive" onClick={handleArchive}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="21 8 21 21 3 21 3 8" />
           <rect x="1" y="3" width="22" height="5" />
@@ -159,12 +159,12 @@ function SessionItem({ session: s, isActive, isStreaming, agents, browserUrl }: 
         </svg>
       </div>
 
-      <div className="session-item-meta">
+      <div className={styles.sessionItemMeta}>
         {parts.join(' · ')}
       </div>
 
       {browserUrl && (
-        <span className="session-browser-badge" title={browserUrl}>
+        <span className={styles.sessionBrowserBadge} title={browserUrl}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <line x1="2" y1="12" x2="22" y2="12" />
@@ -193,7 +193,7 @@ function AgentBadge({ agentId, agentName, agents }: {
 
   return (
     <img
-      className="session-agent-badge"
+      className={styles.sessionAgentBadge}
       src={src}
       title={agentName || agentId}
       draggable={false}

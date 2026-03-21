@@ -295,7 +295,7 @@ export const ArtifactEditor = forwardRef<ArtifactEditorHandle, ArtifactEditorPro
         view.destroy();
         viewRef.current = null;
       };
-    }, [mode, language]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [mode, language]); // eslint-disable-line react-hooks/exhaustive-deps -- 仅在 mode/language 变化时重建 CodeMirror，content/refs 故意省略以避免销毁重建
 
     // content prop change → update editor (skip during active editing)
     useEffect(() => {

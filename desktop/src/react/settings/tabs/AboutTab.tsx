@@ -4,8 +4,9 @@ import { autoSaveConfig, t } from '../helpers';
 import { Toggle } from '../widgets/Toggle';
 import { loadSettingsConfig } from '../actions';
 import iconUrl from '../../../assets/Hanako.png';
+import styles from '../Settings.module.css';
 
-const hana = (window as any).hana;
+const hana = window.hana;
 
 export function AboutTab() {
   const { settingsConfig } = useSettingsStore();
@@ -40,22 +41,22 @@ export function AboutTab() {
   }, []);
 
   return (
-    <div className="settings-tab-content active" data-tab="about">
-      <div className="about-hero">
+    <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="about">
+      <div className={styles['about-hero']}>
         <img
-          className="about-icon about-icon-clickable"
+          className={`${styles['about-icon']} ${styles['about-icon-clickable']}`}
           src={iconUrl}
           alt="Hanako"
           onClick={handleIconTap}
         />
-        <div className="about-name">Hanako</div>
-        <div className="about-tagline">{t('settings.about.tagline')}</div>
-        {version && <div className="about-version">v{version}</div>}
+        <div className={styles['about-name']}>Hanako</div>
+        <div className={styles['about-tagline']}>{t('settings.about.tagline')}</div>
+        {version && <div className={styles['about-version']}>v{version}</div>}
         {updateInfo && (
-          <div className="about-update">
+          <div className={styles['about-update']}>
             <span>{t('settings.about.updateAvailable', { version: updateInfo.version })}</span>
             <a
-              className="about-update-link"
+              className={styles['about-update-link']}
               href="#"
               onClick={(e) => {
                 e.preventDefault();
@@ -73,19 +74,19 @@ export function AboutTab() {
         )}
       </div>
 
-      <section className="about-info">
-        <div className="about-row">
-          <span className="about-label">{t('settings.about.license')}</span>
-          <span className="about-value">Apache License 2.0</span>
+      <section className={styles['about-info']}>
+        <div className={styles['about-row']}>
+          <span className={styles['about-label']}>{t('settings.about.license')}</span>
+          <span className={styles['about-value']}>Apache License 2.0</span>
         </div>
-        <div className="about-row">
-          <span className="about-label">{t('settings.about.copyright')}</span>
-          <span className="about-value">&copy; 2026 liliMozi</span>
+        <div className={styles['about-row']}>
+          <span className={styles['about-label']}>{t('settings.about.copyright')}</span>
+          <span className={styles['about-value']}>&copy; 2026 liliMozi</span>
         </div>
-        <div className="about-row">
-          <span className="about-label">GitHub</span>
+        <div className={styles['about-row']}>
+          <span className={styles['about-label']}>GitHub</span>
           <a
-            className="about-value about-link"
+            className={`${styles['about-value']} ${styles['about-link']}`}
             href="#"
             onClick={(e) => {
               e.preventDefault();
@@ -103,7 +104,7 @@ export function AboutTab() {
       </section>
 
       <button
-        className="about-license-toggle"
+        className={styles['about-license-toggle']}
         onClick={() => setLicenseOpen(!licenseOpen)}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -113,17 +114,17 @@ export function AboutTab() {
       </button>
 
       {licenseOpen && (
-        <pre className="about-license-text">{LICENSE_TEXT}</pre>
+        <pre className={styles['about-license-text']}>{LICENSE_TEXT}</pre>
       )}
 
       {devUnlocked && (
-        <section className="settings-section about-dev-section">
-          <h2 className="settings-section-title">{t('settings.about.permissions')}</h2>
-          <div className="tool-caps-group">
-            <div className="tool-caps-item">
-              <div className="tool-caps-label">
-                <span className="tool-caps-name">{t('settings.about.fullAccess')}</span>
-                <span className="tool-caps-desc warn">
+        <section className={`${styles['settings-section']} ${styles['about-dev-section']}`}>
+          <h2 className={styles['settings-section-title']}>{t('settings.about.permissions')}</h2>
+          <div className={styles['tool-caps-group']}>
+            <div className={styles['tool-caps-item']}>
+              <div className={styles['tool-caps-label']}>
+                <span className={styles['tool-caps-name']}>{t('settings.about.fullAccess')}</span>
+                <span className={`${styles['tool-caps-desc']} ${styles['warn']}`}>
                   {t('settings.about.fullAccessDesc')}
                 </span>
               </div>

@@ -13,7 +13,7 @@ import { useStore } from '../stores';
 import { renderMarkdown } from '../utils/markdown';
 import { cleanMoodText } from '../utils/message-parser';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- 流式消息 handle(msg) 接收动态 JSON */
 
 const FLUSH_INTERVAL = 200;
 
@@ -214,7 +214,7 @@ class StreamBufferManager {
         this.ensureMessage(buf);
         buf.inXing = true;
         buf.xingAcc = '';
-        buf.xingTitle = msg.title || ((window as any).t?.('xing.title') || 'Reflection');
+        buf.xingTitle = msg.title || (window.t?.('xing.title') || 'Reflection');
         this.flush(buf);
         break;
 

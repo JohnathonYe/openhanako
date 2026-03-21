@@ -4,8 +4,9 @@ import { hanaFetch } from '../api';
 import { t } from '../helpers';
 import { KeyInput } from '../widgets/KeyInput';
 import { Toggle } from '../widgets/Toggle';
+import styles from '../Settings.module.css';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 
 interface BridgeStatus {
   telegram: any;
@@ -32,7 +33,7 @@ export function BridgeTab() {
     hanaFetch(`/api/agents/${agentId}/public-ishiki`)
       .then(r => r.json())
       .then(data => { setPublicIshiki(data.content || ''); setPublicIshikiOriginal(data.content || ''); })
-      .catch(() => {});
+      .catch(err => console.warn('[bridge] fetch public-ishiki failed:', err));
   }, [store.settingsConfig]);
 
   const savePublicIshiki = async () => {
@@ -133,20 +134,20 @@ export function BridgeTab() {
   const readOnly = !!status?.readOnly;
 
   return (
-    <div className="settings-tab-content active" data-tab="bridge">
+    <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="bridge">
       {/* 对外意识 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.agent.publicIshiki')}</h2>
-        <div className="settings-field">
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.agent.publicIshiki')}</h2>
+        <div className={styles['settings-field']}>
           <textarea
-            className="settings-textarea"
+            className={styles['settings-textarea']}
             rows={6}
             spellCheck={false}
             value={publicIshiki}
             onChange={(e) => setPublicIshiki(e.target.value)}
             onBlur={savePublicIshiki}
           />
-          <span className="settings-field-hint">{t('settings.agent.publicIshikiHint')}</span>
+          <span className={styles['settings-field-hint']}>{t('settings.agent.publicIshikiHint')}</span>
         </div>
       </section>
 
@@ -161,8 +162,8 @@ export function BridgeTab() {
       </div>
 
       {/* Telegram */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.bridge.telegram')}</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.bridge.telegram')}</h2>
         <div className="bridge-platform-header">
           <BridgeStatusDot status={tgInfo.status} />
           <BridgeStatusText status={tgInfo.status} error={tgInfo.error} />
@@ -179,8 +180,8 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <label className="settings-field-label">{t('settings.bridge.telegramToken')}</label>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.telegramToken')}</label>
           <div className="bridge-input-row">
             <KeyInput
               value={tgToken}
@@ -200,7 +201,7 @@ export function BridgeTab() {
               {t('settings.bridge.test')}
             </button>
           </div>
-          <span className="settings-field-hint">{t('settings.bridge.telegramHint')}</span>
+          <span className={styles['settings-field-hint']}>{t('settings.bridge.telegramHint')}</span>
         </div>
         <OwnerSelect
           platform_="telegram"
@@ -211,8 +212,8 @@ export function BridgeTab() {
       </section>
 
       {/* 飞书 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.bridge.feishu')}</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.bridge.feishu')}</h2>
         <div className="bridge-platform-header">
           <BridgeStatusDot status={fsInfo.status} />
           <BridgeStatusText status={fsInfo.status} error={fsInfo.error} />
@@ -229,10 +230,10 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <label className="settings-field-label">{t('settings.bridge.feishuAppId')}</label>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.feishuAppId')}</label>
           <input
-            className="settings-input"
+            className={styles['settings-input']}
             type="text"
             value={fsAppId}
             onChange={(e) => setFsAppId(e.target.value)}
@@ -243,8 +244,8 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <label className="settings-field-label">{t('settings.bridge.feishuAppSecret')}</label>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.feishuAppSecret')}</label>
           <div className="bridge-input-row">
             <KeyInput
               value={fsAppSecret}
@@ -266,7 +267,7 @@ export function BridgeTab() {
               {t('settings.bridge.test')}
             </button>
           </div>
-          <span className="settings-field-hint">{t('settings.bridge.feishuHint')}</span>
+          <span className={styles['settings-field-hint']}>{t('settings.bridge.feishuHint')}</span>
         </div>
         <OwnerSelect
           platform_="feishu"
@@ -277,8 +278,8 @@ export function BridgeTab() {
       </section>
 
       {/* QQ */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">QQ</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>QQ</h2>
         <div className="bridge-platform-header">
           <BridgeStatusDot status={qqInfo.status} />
           <BridgeStatusText status={qqInfo.status} error={qqInfo.error} />
@@ -295,10 +296,10 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <label className="settings-field-label">{t('settings.bridge.qqAppId')}</label>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.qqAppId')}</label>
           <input
-            className="settings-input"
+            className={styles['settings-input']}
             type="text"
             value={qqAppId}
             onChange={(e) => setQqAppId(e.target.value)}
@@ -309,8 +310,8 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <label className="settings-field-label">{t('settings.bridge.qqAppSecret')}</label>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.qqAppSecret')}</label>
           <div className="bridge-input-row">
             <KeyInput
               value={qqAppSecret}
@@ -332,7 +333,7 @@ export function BridgeTab() {
               {t('settings.bridge.test')}
             </button>
           </div>
-          <span className="settings-field-hint">{t('settings.bridge.qqHint')}</span>
+          <span className={styles['settings-field-hint']}>{t('settings.bridge.qqHint')}</span>
         </div>
         <OwnerSelect
           platform_="qq"
@@ -343,8 +344,8 @@ export function BridgeTab() {
       </section>
 
       {/* WhatsApp */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">WhatsApp</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>WhatsApp</h2>
         <div className="bridge-platform-header">
           <BridgeStatusDot status={waInfo.status} />
           <BridgeStatusText status={waInfo.status} error={waInfo.error} />
@@ -355,8 +356,8 @@ export function BridgeTab() {
             }}
           />
         </div>
-        <div className="settings-field">
-          <span className="settings-field-hint">{t('settings.bridge.whatsappHint')}</span>
+        <div className={styles['settings-field']}>
+          <span className={styles['settings-field-hint']}>{t('settings.bridge.whatsappHint')}</span>
         </div>
         <OwnerSelect
           platform_="whatsapp"
@@ -367,8 +368,8 @@ export function BridgeTab() {
       </section>
 
       {/* 只读模式 */}
-      <section className="settings-section">
-        <h2 className="settings-section-title">{t('settings.bridge.readOnly')}</h2>
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.bridge.readOnly')}</h2>
         <div className="bridge-platform-header">
           <span className="bridge-readonly-desc">{t('settings.bridge.readOnlyDesc')}</span>
           <Toggle
@@ -431,11 +432,11 @@ function OwnerSelect({ platform_, users, currentOwner, onChange }: {
   const cancel = () => setPendingUserId(null);
 
   return (
-    <div className="settings-field bridge-owner-field">
-      <label className="settings-field-label bridge-owner-label">{t('settings.bridge.ownerSelect')}</label>
+    <div className={`${styles['settings-field']} ${'bridge-owner-field'}`}>
+      <label className={`${styles['settings-field-label']} ${'bridge-owner-label'}`}>{t('settings.bridge.ownerSelect')}</label>
       <p className="bridge-owner-warning">{t('settings.bridge.ownerWarning')}</p>
       <select
-        className="settings-input bridge-owner-select"
+        className={`${styles['settings-input']} ${'bridge-owner-select'}`}
         value={currentOwner || ''}
         onChange={(e) => handleChange(e.target.value)}
         disabled={users.length === 0}
@@ -447,16 +448,16 @@ function OwnerSelect({ platform_, users, currentOwner, onChange }: {
       </select>
 
       {pendingUserId !== null && (
-        <div className="memory-confirm-overlay visible" onClick={(e) => { if (e.target === e.currentTarget) cancel(); }}>
-          <div className="memory-confirm-card">
-            <p className="memory-confirm-text">
+        <div className={`${styles['memory-confirm-overlay']} ${styles['visible']}`} onClick={(e) => { if (e.target === e.currentTarget) cancel(); }}>
+          <div className={styles['memory-confirm-card']}>
+            <p className={styles['memory-confirm-text']}>
               {t('settings.bridge.ownerConfirmText')}
             </p>
-            <div className="memory-confirm-actions">
-              <button className="memory-confirm-cancel" onClick={cancel}>
+            <div className={styles['memory-confirm-actions']}>
+              <button className={styles['memory-confirm-cancel']} onClick={cancel}>
                 {t('settings.bridge.ownerConfirmCancel')}
               </button>
-              <button className="memory-confirm-primary" onClick={confirm}>
+              <button className={styles['memory-confirm-primary']} onClick={confirm}>
                 {t('settings.bridge.ownerConfirmSave')}
               </button>
             </div>

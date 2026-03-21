@@ -5,7 +5,7 @@ import { useSettingsStore } from './store';
 import { hanaFetch, hanaUrl } from './api';
 import { t } from './helpers';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 
 export async function loadAgents() {
   const store = useSettingsStore.getState();

@@ -15,6 +15,7 @@ import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useI18n } from '../../hooks/use-i18n';
 import { openFilePreview, openSkillPreview } from '../../utils/file-preview';
 import { openPreview } from '../../stores/artifact-actions';
+import styles from './Chat.module.css';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,8 +35,8 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
   const displayName = sessionAgent?.name || agentName;
   const displayYuan = sessionAgent?.yuan || agentYuan;
   const fallbackAvatar = useMemo(() => {
-    const types = (window as any).t?.('yuan.types') || {};
-    const entry = types[displayYuan] || types.hanako;
+    const types = (window.t?.('yuan.types') || {}) as Record<string, { avatar?: string }>;
+    const entry = types[displayYuan] || types['hanako'];
     return `assets/${entry?.avatar || 'Hanako.png'}`;
   }, [displayYuan]);
   const avatarSrc = sessionAgent?.avatarUrl || agentAvatarUrl || fallbackAvatar;
@@ -61,12 +62,12 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
   }, [blocks]);
 
   return (
-    <div className="message-group assistant">
+    <div className={`${styles.messageGroup} ${styles.messageGroupAssistant}`}>
       {showAvatar && (
-        <div className="avatar-row assistant">
+        <div className={styles.avatarRow}>
           {!avatarFailed ? (
             <img
-              className="avatar hana-avatar"
+              className={`${styles.avatar} ${styles.hanaAvatar}`}
               src={avatarSrc}
               alt={displayName}
               draggable={false}
@@ -82,17 +83,17 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
               }}
             />
           ) : (
-            <span className="avatar user-avatar">🌸</span>
+            <span className={`${styles.avatar} ${styles.userAvatar}`}>🌸</span>
           )}
-          <span className="avatar-name">{displayName}</span>
+          <span className={styles.avatarName}>{displayName}</span>
         </div>
       )}
-      <div className="message assistant">
+      <div className={`${styles.message} ${styles.messageAssistant}`}>
         {blocks.map((block, i) => (
           <ContentBlockView key={i} block={block} agentName={displayName} yuan={displayYuan} />
         ))}
       </div>
-      <button className={`msg-copy-btn${copied ? ' copied' : ''}`} onClick={handleCopy} title={t('common.copyText')}>
+      <button className={`${styles.msgCopyBtn}${copied ? ` ${styles.msgCopyBtnCopied}` : ''}`} onClick={handleCopy} title={t('common.copyText')}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           {copied
             ? <polyline points="20 6 9 17 4 12" />
@@ -158,7 +159,7 @@ const EXT_LABELS: Record<string, string> = {
 const FileOutputCard = memo(function FileOutputCard({ filePath, label, ext }: { filePath: string; label: string; ext: string }) {
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const p = (window as any).platform;
+    const p = window.platform;
     if (p?.openFile) p.openFile(filePath);
   };
 
@@ -166,18 +167,18 @@ const FileOutputCard = memo(function FileOutputCard({ filePath, label, ext }: { 
   const typeLabel = EXT_LABELS[ext] || ext.toUpperCase();
 
   return (
-    <div className="file-output-card file-output-previewable" onClick={() => openFilePreview(filePath, label, ext)} style={{ cursor: 'pointer' }}>
-      <div className="file-output-icon">
+    <div className={`${styles.fileOutputCard} ${styles.fileOutputPreviewable}`} onClick={() => openFilePreview(filePath, label, ext)} style={{ cursor: 'pointer' }}>
+      <div className={styles.fileOutputIcon}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
         </svg>
       </div>
-      <div className="file-output-info">
-        <div className="file-output-name">{displayName}</div>
-        <div className="file-output-type">{typeLabel}{ext ? ` \u00b7 ${ext.toUpperCase()}` : ''}</div>
+      <div className={styles.fileOutputInfo}>
+        <div className={styles.fileOutputName}>{displayName}</div>
+        <div className={styles.fileOutputType}>{typeLabel}{ext ? ` \u00b7 ${ext.toUpperCase()}` : ''}</div>
       </div>
-      <button className="file-output-open" onClick={handleOpen} title={(window as any).t('desk.openWithDefault')}>
+      <button className={styles.fileOutputOpen} onClick={handleOpen} title={window.t('desk.openWithDefault')}>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
           <polyline points="15 3 21 3 21 9" />
@@ -203,7 +204,7 @@ const ArtifactCard = memo(function ArtifactCard({ title, artifactType, artifactI
   };
 
   return (
-    <div className="artifact-inline-card" onClick={handleClick} style={{ cursor: 'pointer' }}>
+    <div className={styles.artifactCard} onClick={handleClick} style={{ cursor: 'pointer' }}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
         <line x1="3" y1="9" x2="21" y2="9" />
@@ -215,7 +216,7 @@ const ArtifactCard = memo(function ArtifactCard({ title, artifactType, artifactI
 
 const SkillCard = memo(function SkillCard({ skillName, skillFilePath }: { skillName: string; skillFilePath: string }) {
   return (
-    <div className="skill-card" onClick={() => openSkillPreview(skillName, skillFilePath)} style={{ cursor: 'pointer' }}>
+    <div className={styles.skillCard} onClick={() => openSkillPreview(skillName, skillFilePath)} style={{ cursor: 'pointer' }}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2L2 7l10 5 10-5-10-5z" />
         <path d="M2 17l10 5 10-5" />
@@ -232,7 +233,7 @@ const BrowserScreenshot = memo(function BrowserScreenshot({ base64, mimeType }: 
     const artifact = {
       id: artId,
       type: 'image',
-      title: (window as any).t('chat.browserScreenshot'),
+      title: window.t('chat.browserScreenshot'),
       content: base64,
       ext: mimeType === 'image/jpeg' ? 'jpg' : 'png',
     };
@@ -244,8 +245,8 @@ const BrowserScreenshot = memo(function BrowserScreenshot({ base64, mimeType }: 
   };
 
   return (
-    <div className="browser-screenshot" onClick={handleClick} style={{ cursor: 'pointer' }}>
-      <img src={`data:${mimeType};base64,${base64}`} alt={(window as any).t('chat.browserScreenshot')} />
+    <div className={styles.browserScreenshot} onClick={handleClick} style={{ cursor: 'pointer' }}>
+      <img src={`data:${mimeType};base64,${base64}`} alt={window.t('chat.browserScreenshot')} />
     </div>
   );
 });
@@ -257,14 +258,12 @@ const CronConfirmCard = memo(function CronConfirmCard({ confirmId, jobData, stat
   const handleApprove = async () => {
     try {
       if (confirmId) {
-        // 新的阻塞式确认：通过 ConfirmStore resolve
         await hanaFetch(`/api/confirm/${confirmId}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'confirmed' }),
         });
       } else {
-        // 旧的非阻塞模式 fallback
         await hanaFetch('/api/desk/cron', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -290,21 +289,21 @@ const CronConfirmCard = memo(function CronConfirmCard({ confirmId, jobData, stat
 
   if (status !== 'pending') {
     return (
-      <div className="cron-confirm-card">
-        <div className="cron-confirm-title">{label}</div>
-        <div className={`cron-confirm-status ${status}`}>
-          {status === 'approved' ? (window as any).t('common.approved') : (window as any).t('common.rejected')}
+      <div className={styles.cronConfirmCard}>
+        <div className={styles.cronConfirmTitle}>{label}</div>
+        <div className={`${styles.cronConfirmStatus} ${status === 'approved' ? styles.cronConfirmStatusApproved : styles.cronConfirmStatusRejected}`}>
+          {status === 'approved' ? window.t('common.approved') : window.t('common.rejected')}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="cron-confirm-card">
-      <div className="cron-confirm-title">{label}</div>
-      <div className="cron-confirm-actions">
-        <button className="cron-confirm-btn approve" onClick={handleApprove}>{(window as any).t('common.approve')}</button>
-        <button className="cron-confirm-btn reject" onClick={handleReject}>{(window as any).t('common.reject')}</button>
+    <div className={styles.cronConfirmCard}>
+      <div className={styles.cronConfirmTitle}>{label}</div>
+      <div className={styles.cronConfirmActions}>
+        <button className={`${styles.cronConfirmBtn} ${styles.cronConfirmBtnApprove}`} onClick={handleApprove}>{window.t('common.approve')}</button>
+        <button className={`${styles.cronConfirmBtn} ${styles.cronConfirmBtnReject}`} onClick={handleReject}>{window.t('common.reject')}</button>
       </div>
     </div>
   );

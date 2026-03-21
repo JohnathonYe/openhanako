@@ -85,7 +85,7 @@ export function cronToHuman(schedule: number | string): string {
   if (dow === '*' && hour !== '*' && min !== '*') {
     return t('cron.dailyAt', { hour, min: min.padStart(2, '0') });
   }
-  const dayNames: string[] = (t as any)('cron.dayNames') || ['日', '一', '二', '三', '四', '五', '六'];
+  const dayNames: string[] = (window.t as (...args: unknown[]) => unknown)('cron.dayNames') as string[] || ['日', '一', '二', '三', '四', '五', '六'];
   const weekPrefix = t('cron.weekPrefix');
   if (dow !== '*' && hour !== '*') {
     const dayStr = dow.split(',').map(d => `${weekPrefix}${(Array.isArray(dayNames) ? dayNames : [])[+d] || d}`).join('/');

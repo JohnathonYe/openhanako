@@ -35,6 +35,7 @@ export interface ProviderSummary {
   has_credentials: boolean;
   logged_in?: boolean;
   supports_oauth: boolean;
+  is_coding_plan?: boolean;
   can_delete: boolean;
 }
 

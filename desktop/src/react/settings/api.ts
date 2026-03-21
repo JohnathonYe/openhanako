@@ -44,8 +44,8 @@ export async function hanaFetch(
 
 /** 根据 yuan 类型返回 fallback 头像路径 */
 export function yuanFallbackAvatar(yuan?: string): string {
-  const t = (window as any).t || ((k: string) => k);
-  const types = t('yuan.types') || {};
+  const t = window.t || ((k: string) => k);
+  const types = (t('yuan.types') || {}) as Record<string, { avatar?: string }>;
   const entry = types[yuan || 'hanako'];
   return `assets/${entry?.avatar || 'Hanako.png'}`;
 }

@@ -8,7 +8,7 @@ import type { ChatMessage, ChatListItem, ContentBlock } from '../stores/chat-typ
 import { parseMoodFromContent, parseXingFromContent, parseUserAttachments } from './message-parser';
 import { renderMarkdown } from './markdown';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- API 历史消息 JSON 结构动态，难以静态收窄 */
 
 // ── API 响应类型 ──
 

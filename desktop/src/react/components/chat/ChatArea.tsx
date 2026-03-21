@@ -11,6 +11,7 @@ import { UserMessage } from './UserMessage';
 import { AssistantMessage } from './AssistantMessage';
 import { CompactionNotice } from './CompactionNotice';
 import type { ChatListItem } from '../../stores/chat-types';
+import styles from './Chat.module.css';
 
 const MAX_ALIVE = 5;
 
@@ -133,14 +134,14 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
   return (
     <div
       ref={ref}
-      className="chat-session-panel"
+      className={styles.sessionPanel}
       style={{
         visibility: active ? 'visible' : 'hidden',
         zIndex: active ? 1 : 0,
         pointerEvents: active ? 'auto' : 'none',
       }}
     >
-      <div ref={contentRef} className="chat-session-messages">
+      <div ref={contentRef} className={styles.sessionMessages}>
         {items.map((item, i) => (
           <ItemView
             key={item.type === 'message' ? item.data.id : `c-${i}`}
@@ -148,7 +149,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
             prevItem={i > 0 ? items[i - 1] : undefined}
           />
         ))}
-        <div className="chat-session-footer" />
+        <div className={styles.sessionFooter} />
       </div>
     </div>
   );
@@ -168,7 +169,7 @@ function ScrollToBottomBtn() {
 
   if (!visible) return null;
   return (
-    <button className="scroll-to-bottom-fab" onClick={() => {
+    <button className={styles.scrollToBottomFab} onClick={() => {
       _scrollBtn.el?.scrollTo({ top: _scrollBtn.el.scrollHeight, behavior: 'smooth' });
     }}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

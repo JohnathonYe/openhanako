@@ -30,7 +30,7 @@ export function SplashApp() {
       let yuan = 'hanako';
 
       try {
-        const hana = (window as any).hana;
+        const hana = window.hana;
         const [avatarPath, splashInfo] = await Promise.all([
           hana?.getAvatarPath?.('agent'),
           hana?.getSplashInfo?.(),

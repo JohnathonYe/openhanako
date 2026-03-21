@@ -4,6 +4,7 @@
  */
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import styles from '../Settings.module.css';
 
 export interface SelectOption {
   value: string;
@@ -71,18 +72,18 @@ export function SelectWidget({ options, value, onChange, placeholder }: SelectWi
   const isPlaceholder = !current;
 
   return (
-    <div className={`sdw${open ? ' open' : ''}`}>
-      <button type="button" className="sdw-trigger" ref={triggerRef} onClick={() => setOpen(!open)}>
-        <span className={`sdw-value${isPlaceholder ? ' sdw-placeholder' : ''}`}>{displayText}</span>
-        <span className="sdw-arrow">▾</span>
+    <div className={`${styles['sdw']}${open  ? ' ' + styles['open'] : ''}`}>
+      <button type="button" className={styles['sdw-trigger']} ref={triggerRef} onClick={() => setOpen(!open)}>
+        <span className={`${styles['sdw-value']}${isPlaceholder  ? ' ' + styles['sdw-placeholder'] : ''}`}>{displayText}</span>
+        <span className={styles['sdw-arrow']}>▾</span>
       </button>
       {open && createPortal(
-        <div className="sdw-popup sdw-popup-fixed" ref={panelRef} style={panelStyle}>
+        <div className={`${styles['sdw-popup']} ${styles['sdw-popup-fixed']}`} ref={panelRef} style={panelStyle}>
           {options.map(item => (
             <button
               type="button"
               key={item.value}
-              className={`sdw-option${item.value === value ? ' selected' : ''}${item.disabled ? ' disabled' : ''}`}
+              className={`${styles['sdw-option']}${item.value === value ? ' ' + styles['selected'] : ''}${item.disabled ? ' ' + styles['disabled'] : ''}`}
               onClick={() => {
                 if (item.disabled) return;
                 onChange(item.value);

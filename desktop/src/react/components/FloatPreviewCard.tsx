@@ -14,7 +14,7 @@ import { saveJianContent } from '../stores/desk-actions';
 
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- 浮动预览卡片：session/deskFile 数据为动态 JSON */
 
 interface FloatCardState {
   side: 'left' | 'right';
@@ -129,7 +129,7 @@ function SessionListCard({ onAction }: { onAction: () => void }) {
         <div
           className="float-card-bar-btn float-card-bar-icon"
           title={t('settings.title')}
-          onClick={() => { onAction(); (window as any).platform?.openSettings(); }}
+          onClick={() => { onAction(); window.platform?.openSettings(); }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3"></circle>

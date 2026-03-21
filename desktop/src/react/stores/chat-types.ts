@@ -6,7 +6,6 @@
  * 不按流式到达顺序。
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ── 工具调用 ──
 

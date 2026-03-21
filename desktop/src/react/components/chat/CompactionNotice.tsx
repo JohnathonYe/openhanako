@@ -3,6 +3,7 @@
  */
 
 import { memo } from 'react';
+import styles from './Chat.module.css';
 
 interface Props {
   yuan: string;
@@ -11,7 +12,7 @@ interface Props {
 export const CompactionNotice = memo(function CompactionNotice({ yuan }: Props) {
   const t = window.t ?? ((p: string) => p);
   return (
-    <div className="compaction-notice" data-yuan={yuan}>
+    <div className={styles.compactionNotice} data-yuan={yuan}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <polyline points="17 1 21 5 17 9" />
         <path d="M3 11V9a4 4 0 0 1 4-4h14" />
@@ -19,7 +20,7 @@ export const CompactionNotice = memo(function CompactionNotice({ yuan }: Props) 
         <path d="M21 13v2a4 4 0 0 1-4 4H3" />
       </svg>
       {t('chat.compacting')}
-      <span className="thinking-dots"><span /><span /><span /></span>
+      <span className={styles.thinkingDots}><span /><span /><span /></span>
     </div>
   );
 });

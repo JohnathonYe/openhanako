@@ -6,6 +6,7 @@
  */
 
 import { memo, useState, useCallback, useMemo } from 'react';
+import styles from './Chat.module.css';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { useI18n } from '../../hooks/use-i18n';
 
@@ -113,14 +114,14 @@ export const SettingsConfirmCard = memo(function SettingsConfirmCard(props: Prop
   if (status !== 'pending') {
     if (status === 'confirmed' && cardType === 'toggle') {
       return (
-        <div className="settings-confirm-card done">
-          <div className="settings-confirm-header">
-            <span className="settings-confirm-label">{displayLabel}</span>
+        <div className={`${styles.settingsConfirmCard} ${styles.settingsConfirmCardDone}`}>
+          <div className={styles.settingsConfirmHeader}>
+            <span className={styles.settingsConfirmLabel}>{displayLabel}</span>
             <div className={`hana-toggle${editValue === 'true' ? ' on' : ''}`} style={{ pointerEvents: 'none' }}>
               <div className="hana-toggle-thumb" />
             </div>
           </div>
-          <div className="settings-confirm-note">{toggleLabel(currentValue, editValue, t)}</div>
+          <div className={styles.settingsConfirmNote}>{toggleLabel(currentValue, editValue, t)}</div>
         </div>
       );
     }
@@ -130,39 +131,39 @@ export const SettingsConfirmCard = memo(function SettingsConfirmCard(props: Prop
       : t('common.changeTimeout').replace('{label}', displayLabel);
     const statusClass = status === 'confirmed' ? 'confirmed' : 'rejected';
     return (
-      <div className="settings-confirm-card done">
-        <div className={`settings-confirm-status ${statusClass}`}>{statusText}</div>
+      <div className={`${styles.settingsConfirmCard} ${styles.settingsConfirmCardDone}`}>
+        <div className={`${styles.settingsConfirmStatus} ${statusClass === 'confirmed' ? styles.settingsConfirmStatusConfirmed : ''}`}>{statusText}</div>
       </div>
     );
   }
 
   // ── Pending 状态 ──
   return (
-    <div className="settings-confirm-card">
+    <div className={styles.settingsConfirmCard}>
       {cardType === 'toggle' ? (
         <>
-          <div className="settings-confirm-header" onClick={() => setEditValue(editValue === 'true' ? 'false' : 'true')} style={{ cursor: 'pointer' }}>
+          <div className={styles.settingsConfirmHeader} onClick={() => setEditValue(editValue === 'true' ? 'false' : 'true')} style={{ cursor: 'pointer' }}>
             <div>
-              <div className="settings-confirm-label">{displayLabel}</div>
-              {description && <div className="settings-confirm-desc">{description}</div>}
+              <div className={styles.settingsConfirmLabel}>{displayLabel}</div>
+              {description && <div className={styles.settingsConfirmDesc}>{description}</div>}
             </div>
             <div className={`hana-toggle${editValue === 'true' ? ' on' : ''}`}>
               <div className="hana-toggle-thumb" />
             </div>
           </div>
-          <div className="settings-confirm-note">{toggleLabel(currentValue, editValue, t)}</div>
+          <div className={styles.settingsConfirmNote}>{toggleLabel(currentValue, editValue, t)}</div>
         </>
       ) : (
         <>
-          <div className="settings-confirm-label">{displayLabel}</div>
-          {description && <div className="settings-confirm-desc">{description}</div>}
-          <div className="settings-confirm-control">
+          <div className={styles.settingsConfirmLabel}>{displayLabel}</div>
+          {description && <div className={styles.settingsConfirmDesc}>{description}</div>}
+          <div className={styles.settingsConfirmControl}>
             {cardType === 'list' && options && (
-              <div className="settings-confirm-options">
+              <div className={styles.settingsConfirmOptions}>
                 {options.map(opt => (
                   <button
                     key={opt}
-                    className={`settings-confirm-option${opt === editValue ? ' selected' : ''}`}
+                    className={`${styles.settingsConfirmOption}${opt === editValue ? ` ${styles.settingsConfirmOptionSelected}` : ''}`}
                     onClick={() => setEditValue(opt)}
                   >
                     {opt === editValue ? '✓ ' : ''}{optionLabels?.[opt] || opt}
@@ -172,7 +173,7 @@ export const SettingsConfirmCard = memo(function SettingsConfirmCard(props: Prop
             )}
             {cardType === 'text' && (
               <input
-                className="settings-confirm-input"
+                className={styles.settingsConfirmInput}
                 type="text"
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
@@ -182,9 +183,9 @@ export const SettingsConfirmCard = memo(function SettingsConfirmCard(props: Prop
         </>
       )}
 
-      <div className="settings-confirm-actions">
-        <button className="settings-confirm-btn confirm" onClick={handleConfirm}>{t('common.confirm')}</button>
-        <button className="settings-confirm-btn reject" onClick={handleReject}>{t('common.cancel')}</button>
+      <div className={styles.settingsConfirmActions}>
+        <button className={`${styles.settingsConfirmBtn} ${styles.settingsConfirmBtnConfirm}`} onClick={handleConfirm}>{t('common.confirm')}</button>
+        <button className={`${styles.settingsConfirmBtn} ${styles.settingsConfirmBtnReject}`} onClick={handleReject}>{t('common.cancel')}</button>
       </div>
     </div>
   );

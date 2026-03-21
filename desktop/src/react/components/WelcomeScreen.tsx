@@ -14,8 +14,9 @@ import { loadDeskFiles } from '../stores/desk-actions';
 import { clearChat } from '../stores/agent-actions';
 import type { Agent } from '../types';
 import { yuanFallbackAvatar } from '../utils/agent-helpers';
+import styles from './Welcome.module.css';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调 (s: any) */
 
 // ── 稳定头像时间戳（避免每次渲染生成新 URL） ──
 let _avatarTs = Date.now();
@@ -80,13 +81,13 @@ function WelcomeInner() {
     if (welcomeVisible) {
       setGreeting(randomWelcome(displayName, displayYuan));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 welcomeVisible 切换时重新随机，不跟踪 displayName/displayYuan 变化
   }, [welcomeVisible]);
 
   if (!welcomeVisible) return null;
 
   return (
-    <>
+    <div className={styles.welcome}>
       <WelcomeAvatar
         agentId={displayAgent?.id || null}
         hasAvatar={displayAgent?.hasAvatar ?? false}
@@ -94,7 +95,7 @@ function WelcomeInner() {
         yuan={displayYuan}
         name={displayName}
       />
-      <p className="welcome-text">{greeting}</p>
+      <p className={styles.welcomeText}>{greeting}</p>
       {agents.length >= 2 && (
         <AgentChips
           agents={agents}
@@ -107,7 +108,7 @@ function WelcomeInner() {
         pendingNewSession={pendingNewSession}
       />
       <MemoryToggle enabled={memoryEnabled} t={t} />
-    </>
+    </div>
   );
 }
 
@@ -141,7 +142,7 @@ function WelcomeAvatar({ agentId, hasAvatar, agentAvatarUrl, yuan, name }: {
 
   return (
     <img
-      className="welcome-avatar"
+      className={styles.welcomeAvatar}
       src={src}
       alt={name}
       draggable={false}
@@ -161,7 +162,7 @@ function AgentChips({ agents, selectedId }: {
   }, []);
 
   return (
-    <div className="welcome-agent-selector">
+    <div className={styles.welcomeAgentSelector}>
       {agents.map(agent => (
         <AgentChip
           key={agent.id}
@@ -193,11 +194,11 @@ function AgentChip({ agent, isSelected, onClick }: {
 
   return (
     <button
-      className={'welcome-agent-chip' + (isSelected ? ' selected' : '')}
+      className={`${styles.welcomeAgentChip}${isSelected ? ` ${styles.welcomeAgentChipSelected}` : ''}`}
       onClick={handleClick}
     >
       <img
-        className="welcome-agent-chip-avatar"
+        className={styles.welcomeAgentChipAvatar}
         src={src}
         draggable={false}
         onError={handleError}
@@ -235,7 +236,7 @@ function FolderPicker({ selectedFolder, cwdHistory, pendingNewSession }: {
 
   const handleBrowse = useCallback(async () => {
     setShowHistory(false);
-    const folder = await (window as any).platform?.selectFolder?.();
+    const folder = await window.platform?.selectFolder?.();
     if (!folder) return;
     applyFolderAction(folder, pendingNewSession);
   }, [pendingNewSession]);
@@ -260,18 +261,18 @@ function FolderPicker({ selectedFolder, cwdHistory, pendingNewSession }: {
 
   return (
     <div
-      className={'folder-select-wrap' + (showHistory ? ' show-history' : '')}
+      className={`${styles.folderSelectWrap}${showHistory ? ` ${styles.folderSelectWrapShowHistory}` : ''}`}
       ref={wrapRef}
     >
       <button
-        className={'folder-select-btn' + (selectedFolder ? ' has-folder' : '')}
+        className={`${styles.folderSelectBtn}${selectedFolder ? ` ${styles.folderSelectBtnHasFolder}` : ''}`}
         onClick={handleButtonClick}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
         </svg>
         <span>{label}</span>
-        <svg className="folder-swap-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className={styles.folderSwapIcon} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="17 1 21 5 17 9"></polyline>
           <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
           <polyline points="7 23 3 19 7 15"></polyline>
@@ -297,29 +298,29 @@ function FolderHistory({ cwdHistory, selectedFolder, onSelect, onBrowse }: {
   onBrowse: () => void;
 }) {
   return (
-    <div className="folder-history">
+    <div className={styles.folderHistory}>
       {cwdHistory.map(p => {
         const name = p.split('/').pop() || p;
         const isActive = p === selectedFolder;
         return (
           <div
             key={p}
-            className={'folder-history-item' + (isActive ? ' active' : '')}
+            className={`${styles.folderHistoryItem}${isActive ? ` ${styles.folderHistoryItemActive}` : ''}`}
             title={p}
             onClick={(e) => { e.stopPropagation(); onSelect(p); }}
           >
-            <span className="folder-history-item-icon">
+            <span className={styles.folderHistoryItemIcon}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
               </svg>
             </span>
-            <span className="folder-history-item-name">{name}</span>
+            <span className={styles.folderHistoryItemName}>{name}</span>
           </div>
         );
       })}
-      <div className="folder-history-divider" />
-      <div className="folder-history-browse" onClick={(e) => { e.stopPropagation(); onBrowse(); }}>
-        <span className="folder-history-item-icon">
+      <div className={styles.folderHistoryDivider} />
+      <div className={styles.folderHistoryBrowse} onClick={(e) => { e.stopPropagation(); onBrowse(); }}>
+        <span className={styles.folderHistoryItemIcon}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
             <line x1="12" y1="11" x2="12" y2="17"></line>
@@ -361,10 +362,10 @@ function MemoryToggle({ enabled, t }: {
 
   return (
     <button
-      className={'memory-toggle-btn' + (enabled ? ' active' : '')}
+      className={`${styles.memoryToggleBtn}${enabled ? ` ${styles.memoryToggleBtnActive}` : ''}`}
       onClick={handleClick}
     >
-      <svg className="memory-toggle-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg className={styles.memoryToggleIcon} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
         <path d="M12 8a4 4 0 1 0 0 8" />
         <path d="M12 2v2M12 20v2" />

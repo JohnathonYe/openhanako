@@ -22,8 +22,9 @@ import { MemoryViewer } from './overlays/MemoryViewer';
 import { CompiledMemoryViewer } from './overlays/CompiledMemoryViewer';
 import { ClearMemoryConfirm } from './overlays/ClearMemoryConfirm';
 import { BridgeTutorial } from './overlays/BridgeTutorial';
+import styles from './Settings.module.css';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 const titlebarEl = document.querySelector('.titlebar');
 
 const TAB_COMPONENTS: Record<string, React.ComponentType> = {
@@ -58,11 +59,11 @@ export function SettingsApp() {
     <>
       <div className="settings-panel" id="settingsPanel">
         <div className="settings-header">
-          <h1 className="settings-title">{t('settings.title')}</h1>
+          <h1 className={styles['settings-title']}>{t('settings.title')}</h1>
         </div>
-        <div className="settings-body">
+        <div className={styles['settings-body']}>
           <SettingsNav />
-          <div className="settings-main">
+          <div className={styles['settings-main']}>
             <ActiveTab />
           </div>
         </div>
@@ -89,12 +90,12 @@ export function SettingsApp() {
 async function initSettings() {
   const store = useSettingsStore.getState();
   try {
-    const serverPort = await platform.getServerPort();
+    const serverPort = Number(await platform.getServerPort());
     const serverToken = await platform.getServerToken();
     store.set({ serverPort, serverToken });
 
     // i18n
-    const i18n = (window as any).i18n;
+    const i18n = window.i18n;
     try {
       const cfgRes = await hanaFetch('/api/config');
       const cfg = await cfgRes.json();

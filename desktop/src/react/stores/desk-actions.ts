@@ -8,9 +8,9 @@ import { useStore } from './index';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { clearChat } from './agent-actions';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调及 IPC callback data */
 
-const t = (key: string, vars?: Record<string, any>) => (window as any).t?.(key, vars) ?? key;
+const t = (key: string, vars?: Record<string, string | number>) => window.t?.(key, vars) ?? key;
 
 // ── 路径工具 ──
 
@@ -113,7 +113,7 @@ export async function deskUploadFiles(paths: string[]): Promise<void> {
 export async function deskCreateFile(text: string): Promise<void> {
   const s = useStore.getState();
   const ts = new Date().toISOString().slice(5, 16).replace(/[T:]/g, '-');
-  const locale = (window as any).i18n?.locale || 'zh';
+  const locale = window.i18n?.locale || 'zh';
   const prefix = locale.startsWith('zh') ? '备注' : locale.startsWith('ja') ? 'メモ' : locale.startsWith('ko') ? '메모' : 'note';
   const name = `${prefix}_${ts}.md`;
   try {

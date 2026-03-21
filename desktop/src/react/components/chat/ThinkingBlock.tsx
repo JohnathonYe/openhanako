@@ -3,6 +3,7 @@
  */
 
 import { memo, useState, useCallback } from 'react';
+import styles from './Chat.module.css';
 
 interface Props {
   content: string;
@@ -15,15 +16,15 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, sealed }: Pr
   const toggle = useCallback(() => setOpen(v => !v), []);
 
   return (
-    <details className="thinking-block" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className="thinking-block-summary" onClick={(e) => { e.preventDefault(); toggle(); }}>
-        <span className={`thinking-block-arrow${open ? ' open' : ''}`}>›</span>
+    <details className={styles.thinkingBlock} open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className={styles.thinkingBlockSummary} onClick={(e) => { e.preventDefault(); toggle(); }}>
+        <span className={`${styles.thinkingBlockArrow}${open ? ` ${styles.thinkingBlockArrowOpen}` : ''}`}>›</span>
         {' '}{sealed ? t('thinking.done') : (
-          <>{t('thinking.active')}<span className="thinking-dots"><span /><span /><span /></span></>
+          <>{t('thinking.active')}<span className={styles.thinkingDots}><span /><span /><span /></span></>
         )}
       </summary>
       {open && content && (
-        <div className="thinking-block-body">{content}</div>
+        <div className={styles.thinkingBlockBody}>{content}</div>
       )}
     </details>
   );

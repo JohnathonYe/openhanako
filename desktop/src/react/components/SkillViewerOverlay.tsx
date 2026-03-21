@@ -46,20 +46,20 @@ export function SkillViewerOverlay() {
   useEffect(() => {
     if (!data) return;
     (async () => {
-      const hana = (window as any).hana;
-      const items = await hana?.listSkillFiles?.(data.baseDir);
+      const hana = window.hana;
+      const items = await hana?.listSkillFiles?.(data.baseDir) as TreeItem[] | undefined;
       setFiles(items || []);
       const mdPath = data.filePath || (data.baseDir + '/SKILL.md');
       loadFile(mdPath, 'SKILL.md');
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-like：仅在 baseDir 变化时重新加载文件树，loadFile 是组件内函数不需追踪
   }, [data?.baseDir]);
 
   async function loadFile(filePath: string, name: string) {
     setActiveFile(filePath);
     setFileName(name);
-    const text = await (window as any).hana?.readSkillFile?.(filePath);
-    setContent(text);
+    const text = await window.hana?.readSkillFile?.(filePath);
+    setContent(text ?? null);
   }
 
   async function onCopy() {

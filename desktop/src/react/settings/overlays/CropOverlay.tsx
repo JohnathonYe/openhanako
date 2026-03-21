@@ -3,8 +3,9 @@ import { useSettingsStore } from '../store';
 import { hanaFetch, hanaUrl } from '../api';
 import { t } from '../helpers';
 import { loadAgents } from '../actions';
+import styles from '../Settings.module.css';
 
-const platform = (window as any).platform;
+const platform = window.platform;
 const CROP_SIZE = 256;
 const OUTPUT_SIZE = 512;
 
@@ -120,27 +121,27 @@ export function CropOverlay() {
   if (!visible) return null;
 
   return (
-    <div className="crop-overlay visible" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="crop-card">
-        <div className="crop-header">
-          <h3 className="crop-title">{t('settings.crop.title')}</h3>
-          <button className="crop-close" onClick={close}>✕</button>
+    <div className={`${styles['crop-overlay']} ${styles['visible']}`} onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
+      <div className={styles['crop-card']}>
+        <div className={styles['crop-header']}>
+          <h3 className={styles['crop-title']}>{t('settings.crop.title')}</h3>
+          <button className={styles['crop-close']} onClick={close}>✕</button>
         </div>
         <div
-          className="crop-viewport"
+          className={styles['crop-viewport']}
           ref={viewportRef}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onWheel={handleWheel}
         >
-          <img className="crop-img" ref={imgRef} src={imgSrc} draggable={false} />
-          <div className="crop-circle" />
+          <img className={styles['crop-img']} ref={imgRef} src={imgSrc} draggable={false} />
+          <div className={styles['crop-circle']} />
         </div>
-        <div className="crop-hint">{t('settings.crop.hint')}</div>
-        <div className="crop-actions">
-          <button className="crop-btn crop-btn-cancel" onClick={close}>{t('settings.crop.cancel')}</button>
-          <button className="crop-btn crop-btn-confirm" onClick={confirm}>{t('settings.crop.confirm')}</button>
+        <div className={styles['crop-hint']}>{t('settings.crop.hint')}</div>
+        <div className={styles['crop-actions']}>
+          <button className={`${styles['crop-btn']} ${styles['crop-btn-cancel']}`} onClick={close}>{t('settings.crop.cancel')}</button>
+          <button className={`${styles['crop-btn']} ${styles['crop-btn-confirm']}`} onClick={confirm}>{t('settings.crop.confirm')}</button>
         </div>
       </div>
     </div>

@@ -19,7 +19,7 @@ export function BrowserViewerApp() {
   const [canForward, setCanForward] = useState(false);
 
   useEffect(() => {
-    const hana = (window as any).hana;
+    const hana = window.hana;
 
     // 监听主题切换
     hana?.onSettingsChanged?.((type: string, data: any) => {
@@ -39,10 +39,10 @@ export function BrowserViewerApp() {
     });
 
     // i18n
-    (window as any).i18n?.load?.(navigator.language || 'zh');
+    window.i18n?.load?.(navigator.language || 'zh');
   }, []);
 
-  const hana = (window as any).hana;
+  const hana = window.hana;
 
   return (
     <>

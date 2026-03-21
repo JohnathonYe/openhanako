@@ -4,13 +4,14 @@
  * 纯逻辑模块，不依赖 ctx 注入。通过 Zustand store 访问状态。
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- WS 消息分发，msg 结构由服务端动态决定 */
 
 import { streamBufferManager } from '../hooks/use-stream-buffer';
 import { useStore } from '../stores';
 import { loadSessions as loadSessionsAction } from '../stores/session-actions';
 import { handleArtifact } from '../stores/artifact-actions';
 import { loadDeskFiles } from '../stores/desk-actions';
+import { loadChannels as loadChannelsAction, openChannel as openChannelAction } from '../stores/channel-actions';
 import { showError } from '../utils/ui-helpers';
 import { getWebSocket } from './websocket';
 import {
@@ -71,7 +72,7 @@ export function applyStreamingStatus(isStreaming: boolean): void {
   } else {
     // React 模式：消息完成由 StreamBuffer turn_end 处理
     if (hasOptimisticCurrentSession()) {
-      loadSessionsAction().catch(() => {});
+      loadSessionsAction().catch(err => console.warn('[ws] loadSessions failed:', err));
     }
   }
 }
@@ -163,8 +164,8 @@ export function handleServerMessage(msg: any): void {
         browserThumbnail: msg.running ? (msg.thumbnail || state.browserThumbnail) : null,
       });
       // renderBrowserCard — no-op (browser card rendering handled by React)
-      if ((window as any).platform?.updateBrowserViewer) {
-        (window as any).platform.updateBrowserViewer({
+      if (window.platform?.updateBrowserViewer) {
+        window.platform.updateBrowserViewer({
           running: !!msg.running,
           url: msg.url || null,
           thumbnail: msg.running ? (msg.thumbnail || state.browserThumbnail) : null,
@@ -184,18 +185,18 @@ export function handleServerMessage(msg: any): void {
       break;
 
     case 'notification':
-      if ((window as any).hana?.showNotification) {
-        (window as any).hana.showNotification(msg.title, msg.body);
+      if (window.hana?.showNotification) {
+        window.hana.showNotification(msg.title, msg.body);
       }
       break;
 
     case 'bridge_status':
-      (window as any).__hanaBridgeLoadStatus?.();
+      useStore.getState().triggerBridgeReload();
       break;
 
     case 'bridge_message':
       if (msg.message) {
-        (window as any).__hanaBridgeOnMessage?.(msg.message);
+        useStore.getState().addBridgeMessage(msg.message);
       }
       break;
 
@@ -206,9 +207,9 @@ export function handleServerMessage(msg: any): void {
     case 'channel_new_message': {
       const store = useStore.getState();
       if (msg.channelName && store.currentChannel === msg.channelName) {
-        store.openChannel(msg.channelName);
+        openChannelAction(msg.channelName);
       } else if (msg.channelName) {
-        store.loadChannels();
+        loadChannelsAction();
       }
       break;
     }
@@ -217,9 +218,9 @@ export function handleServerMessage(msg: any): void {
       const dmId = `dm:${msg.from}`;
       const store2 = useStore.getState();
       if (store2.currentChannel === dmId) {
-        store2.openChannel(dmId, true);
+        openChannelAction(dmId, true);
       } else {
-        store2.loadChannels();
+        loadChannelsAction();
       }
       break;
     }
@@ -259,9 +260,9 @@ export function handleServerMessage(msg: any): void {
 
     case 'apply_frontend_setting': {
       if (msg.key === 'theme') {
-        (window as any).applyTheme?.(msg.value);
+        window.applyTheme?.(msg.value);
         // 通知其他窗口（设置窗口等）同步主题
-        (window as any).platform?.settingsChanged?.('theme');
+        window.platform?.settingsChanged?.('theme');
       }
       break;
     }

@@ -12,6 +12,8 @@ export interface UiSlice {
   locale: string;
   /** Skill 预览 overlay 数据（null = 关闭） */
   skillViewerData: { name: string; baseDir: string; filePath?: string; installed?: boolean } | null;
+  /** 频道创建弹窗是否可见 */
+  channelCreateOverlayVisible: boolean;
   setSidebarOpen: (open: boolean) => void;
   setSidebarAutoCollapsed: (collapsed: boolean) => void;
   setJianOpen: (open: boolean) => void;
@@ -20,6 +22,7 @@ export interface UiSlice {
   setWelcomeVisible: (visible: boolean) => void;
   setCurrentTab: (tab: TabType) => void;
   setActivePanel: (panel: ActivePanel) => void;
+  setChannelCreateOverlayVisible: (visible: boolean) => void;
   toggleSidebar: () => void;
   toggleJian: () => void;
 }
@@ -39,6 +42,7 @@ export const createUiSlice = (
   // locale sync always triggers a rerender, even for the default zh locale.
   locale: '',
   skillViewerData: null,
+  channelCreateOverlayVisible: false,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarAutoCollapsed: (collapsed) => set({ sidebarAutoCollapsed: collapsed }),
   setJianOpen: (open) => set({ jianOpen: open }),
@@ -47,6 +51,7 @@ export const createUiSlice = (
   setWelcomeVisible: (visible) => set({ welcomeVisible: visible }),
   setCurrentTab: (tab) => set({ currentTab: tab }),
   setActivePanel: (panel) => set({ activePanel: panel }),
+  setChannelCreateOverlayVisible: (visible) => set({ channelCreateOverlayVisible: visible }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleJian: () => set((s) => ({ jianOpen: !s.jianOpen })),
 });

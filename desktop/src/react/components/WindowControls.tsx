@@ -8,12 +8,12 @@
 import { useEffect, useState, useCallback } from 'react';
 
 export function WindowControls() {
-  const t = (window as any).t ?? ((p: string) => p);
+  const t = window.t ?? ((p: string) => p);
   const [isWin, setIsWin] = useState(false);
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    const p = (window as any).platform;
+    const p = window.platform;
     if (!p?.getPlatform) return;
     p.getPlatform().then((plat: string) => {
       if (plat !== 'darwin' && plat !== 'web') setIsWin(true);
@@ -24,9 +24,9 @@ export function WindowControls() {
     p.windowIsMaximized?.().then((val: boolean) => setMaximized(val));
   }, []);
 
-  const minimize = useCallback(() => (window as any).platform?.windowMinimize(), []);
-  const maximize = useCallback(() => (window as any).platform?.windowMaximize(), []);
-  const close = useCallback(() => (window as any).platform?.windowClose(), []);
+  const minimize = useCallback(() => window.platform?.windowMinimize?.(), []);
+  const maximize = useCallback(() => window.platform?.windowMaximize?.(), []);
+  const close = useCallback(() => window.platform?.windowClose?.(), []);
 
   if (!isWin) return null;
 

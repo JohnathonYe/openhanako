@@ -3,11 +3,10 @@
  */
 
 import { memo, useState, useCallback } from 'react';
+import styles from './Chat.module.css';
 import { extractToolDetail } from '../../utils/message-parser';
 import { useStore } from '../../stores';
 import type { ToolCall } from '../../stores/chat-types';
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 interface Props {
   tools: ToolCall[];
@@ -16,7 +15,7 @@ interface Props {
 }
 
 function getToolLabel(name: string, phase: string): string {
-  const t = (window as any).t;
+  const t = window.t;
   const agentName = useStore.getState().agentName || 'Hanako';
   const vars = { name: agentName };
   const val = t?.(`tool.${name}.${phase}`, vars);
@@ -33,7 +32,7 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({ tools, collapsed: i
   const isSingle = tools.length === 1;
 
   // 摘要标题
-  const _t = (window as any).t ?? ((p: string) => p);
+  const _t = window.t ?? ((p: string) => p);
   let summaryText = '';
   if (allDone) {
     if (failCount > 0) {
@@ -47,20 +46,20 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({ tools, collapsed: i
   }
 
   return (
-    <div className={`tool-group${isSingle ? ' single' : ''}`}>
+    <div className={`${styles.toolGroup}${isSingle ? ` ${styles.toolGroupSingle}` : ''}`}>
       {!isSingle && (
         <div
-          className={`tool-group-summary${allDone ? ' clickable' : ''}`}
+          className={`${styles.toolGroupSummary}${allDone ? ` ${styles.toolGroupSummaryClickable}` : ''}`}
           onClick={allDone ? toggle : undefined}
         >
-          <span className="tool-group-title">{summaryText}</span>
-          {allDone && <span className="tool-group-arrow">{collapsed ? '›' : '‹'}</span>}
+          <span className={styles.toolGroupTitle}>{summaryText}</span>
+          {allDone && <span className={styles.toolGroupArrow}>{collapsed ? '›' : '‹'}</span>}
           {!allDone && (
-            <span className="tool-dots"><span /><span /><span /></span>
+            <span className={styles.toolDots}><span /><span /><span /></span>
           )}
         </div>
       )}
-      <div className={`tool-group-content${collapsed && !isSingle ? ' collapsed' : ''}`}>
+      <div className={`${styles.toolGroupContent}${collapsed && !isSingle ? ` ${styles.toolGroupContentCollapsed}` : ''}`}>
         {tools.map((tool, i) => (
           <ToolIndicator key={`${tool.name}-${i}`} tool={tool} />
         ))}
@@ -79,16 +78,16 @@ const ToolIndicator = memo(function ToolIndicator({ tool }: { tool: ToolCall }) 
   const tag = tool.args?.agentId as string | undefined;
 
   return (
-    <div className="tool-indicator" data-tool={tool.name} data-done={String(tool.done)}>
-      <span className="tool-desc">{label}</span>
-      {detail && <span className="tool-detail">{detail}</span>}
-      {tag && <span className="tool-tag">{tag}</span>}
+    <div className={styles.toolIndicator} data-tool={tool.name} data-done={String(tool.done)}>
+      <span className={styles.toolDesc}>{label}</span>
+      {detail && <span className={styles.toolDetail}>{detail}</span>}
+      {tag && <span className={styles.toolTag}>{tag}</span>}
       {tool.done ? (
-        <span className={`tool-status ${tool.success ? 'done' : 'failed'}`}>
+        <span className={`${styles.toolStatus} ${tool.success ? styles.toolStatusDone : styles.toolStatusFailed}`}>
           {tool.success ? '✓' : '✗'}
         </span>
       ) : (
-        <span className="tool-dots"><span /><span /><span /></span>
+        <span className={styles.toolDots}><span /><span /><span /></span>
       )}
     </div>
   );

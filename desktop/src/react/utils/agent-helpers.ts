@@ -4,7 +4,7 @@
  * 从 app-agents-shim.ts 提取。不依赖 ctx 注入，直接使用 Zustand store。
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any -- t() 返回值 + opts/patch 为动态 Record */
 
 import { useStore } from '../stores';
 
