@@ -58,6 +58,14 @@ export function SelectWidget({ options, value, onChange, placeholder }: SelectWi
     return () => document.removeEventListener('mousedown', handler);
   }, [open, close]);
 
+  // 滚动时关闭（避免 fixed 面板脱轨）
+  useEffect(() => {
+    if (!open) return;
+    const handler = () => close();
+    window.addEventListener('scroll', handler, true);
+    return () => window.removeEventListener('scroll', handler, true);
+  }, [open, close]);
+
   const current = options.find(o => o.value === value);
   const displayText = current?.label || placeholder || '';
   const isPlaceholder = !current;

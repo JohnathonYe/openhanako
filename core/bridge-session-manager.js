@@ -304,7 +304,10 @@ export class BridgeSessionManager {
 
   /** 创建 bridge 专用 settings：100k token 触发压缩 */
   _createSettings(model) {
-    const contextWindow = model?.contextWindow || 200_000;
+    // 用户手动设置的 context 覆盖优先
+    const overrides = this._deps.getAgent?.()?.config?.models?.overrides;
+    const ov = model?.id && overrides?.[model.id];
+    const contextWindow = ov?.context || model?.contextWindow || 200_000;
     return SettingsManager.inMemory({
       compaction: {
         enabled: true,

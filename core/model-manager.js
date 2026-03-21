@@ -88,8 +88,10 @@ export class ModelManager {
       const oauthCustom = this._prefs?.getOAuthCustomModels?.() || {};
       this.modelCatalog.injectOAuthCustomModels(oauthCustom);
       this.authStore?.load();
+      // 用 ModelCatalog（含 known-models.json 元数据）修正 _availableModels 中的 contextWindow
+      // 供应商 /v1/models 返回的 context_length 经常不准确
+      this._enrichFromCatalog();
       // 将 Catalog 中有但 _availableModels 没有的 builtinModels 回灌
-      // 让 UI、REST API、Bridge、Agent 切换都能看到
       this._mergeBuiltinModels();
     }
     return this._availableModels;
@@ -130,17 +132,42 @@ export class ModelManager {
   }
 
   /**
+   * 用 ModelCatalog 的元数据修正 _availableModels 中的 contextWindow / maxTokens
+   * 供应商 /v1/models 返回的 context_length 经常不准确（如 MiMo 返回 131072 但实际 1M）
+   * known-models.json 作为权威来源覆盖
+   * @private
+   */
+  _enrichFromCatalog() {
+    if (!this.modelCatalog) return;
+    for (const m of this._availableModels) {
+      // 优先用 provider/id 精确匹配，避免同名模型跨 provider 误配
+      const key = m.provider ? `${m.provider}/${m.id}` : m.id;
+      const entry = this.modelCatalog.get(key) || this.modelCatalog.resolve(m.id);
+      if (!entry) continue;
+      if (entry.contextWindow && entry.contextWindow > (m.contextWindow || 0)) {
+        m.contextWindow = entry.contextWindow;
+      }
+      if (entry.maxTokens && entry.maxTokens > (m.maxTokens || 0)) {
+        m.maxTokens = entry.maxTokens;
+      }
+    }
+  }
+
+  /**
    * 将 ModelCatalog 中有但 _availableModels 中没有的模型回灌
    * 主要来源：ProviderRegistry 的 builtinModels 声明
    * @private
    */
   _mergeBuiltinModels() {
     if (!this.modelCatalog) return;
-    const existingIds = new Set(this._availableModels.map(m => m.id));
+    // 用 provider+id 双重去重，避免同名模型跨 provider 被吞
+    const existingKeys = new Set(this._availableModels.map(m => m.provider ? `${m.provider}/${m.id}` : m.id));
     for (const entry of this.modelCatalog.list()) {
-      if (existingIds.has(entry.modelId)) continue;
+      if (existingKeys.has(entry.key)) continue;
+      // 也检查裸 id（向后兼容：_availableModels 里可能没有 provider 字段）
+      if (existingKeys.has(entry.modelId)) continue;
       this._availableModels.push(this.modelCatalog.toSdkEntry(entry));
-      existingIds.add(entry.modelId);
+      existingKeys.add(entry.key);
     }
   }
 
@@ -165,13 +192,15 @@ export class ModelManager {
       registerOAuthProvider(minimaxOAuthProvider);
       this._availableModels = await this._modelRegistry.getAvailable();
       this._injectOAuthCustomModels();
-      // v2：同步刷新 ModelCatalog + AuthStore
+      // v2：同步刷新 ModelCatalog + AuthStore（和 refreshAvailable 保持一致）
       if (this.modelCatalog) {
         await this.modelCatalog.refresh();
         const oauthCustom = this._prefs?.getOAuthCustomModels?.() || {};
         this.modelCatalog.injectOAuthCustomModels(oauthCustom);
         this.authStore?.invalidate();
         this.authStore?.load();
+        this._enrichFromCatalog();
+        this._mergeBuiltinModels();
       }
     }
     return synced;
@@ -278,6 +307,9 @@ export class ModelManager {
    * 委托 ExecutionRouter
    */
   resolveUtilityConfig(agentConfig, sharedModels, utilApi) {
+    if (!this.executionRouter) {
+      throw new Error(t("error.noUtilityModel"));
+    }
     return this.executionRouter.resolveUtilityConfig(agentConfig, sharedModels, utilApi);
   }
 }

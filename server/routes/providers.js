@@ -234,13 +234,21 @@ export default async function providersRoute(app, { engine }) {
       } catch {}
     }
 
-    // Anthropic 格式没有 /models 端点，直接从 Pi SDK 内置模型列表返回
+    // Anthropic 格式没有 /models 端点，从 Pi SDK + ProviderRegistry builtinModels 返回
     if (api === "anthropic-messages") {
       const registryModels = engine.modelRegistry
         ? engine.modelRegistry.getAll().filter((m) => m.provider === name)
         : [];
       if (registryModels.length > 0) {
         return { source: "registry", models: normalizeRegistryModels(registryModels) };
+      }
+      // fallback：从 ProviderRegistry 的 builtinModels 声明返回
+      const provEntry = engine.providerRegistry?.get(name);
+      if (provEntry?.builtinModels?.length > 0) {
+        return {
+          source: "builtin",
+          models: provEntry.builtinModels.map(id => ({ id, name: id, context: null, maxOutput: null })),
+        };
       }
       return { error: "No built-in models found for this provider", models: [] };
     }
