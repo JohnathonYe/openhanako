@@ -272,30 +272,44 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
       return { error: "platform, chatId, filePath required" };
     }
 
-    // 路径安全检查：只允许 HANA_HOME 和 desk workspace 下的文件
-    const resolved = path.resolve(filePath);
+    // 路径安全检查（对齐 fs.js 的 getAllowedRoots 逻辑）
     const hanaHome = path.resolve(engine.hanakoHome);
     const allowedRoots = [hanaHome];
-    // desk workspace 目录（如有）
-    const prefs = engine.getPreferences();
-    const deskWorkspace = prefs.desk?.workspace;
-    if (deskWorkspace) allowedRoots.push(path.resolve(deskWorkspace));
+    const deskHome = engine.agent?.deskManager?.homePath;
+    if (deskHome) allowedRoots.push(path.resolve(deskHome));
+
+    // 先检查文件是否存在
+    const resolved = path.resolve(filePath);
+    if (!fs.existsSync(resolved)) {
+      reply.code(404);
+      return { error: "file not found" };
+    }
+
+    // 用 realpathSync 解析 symlink，防止 symlink 绕过白名单
+    let realPath;
+    try { realPath = fs.realpathSync(resolved); }
+    catch { return reply.code(404).send({ error: "file not found" }); }
 
     const isSafe = allowedRoots.some(root =>
-      resolved === root || resolved.startsWith(root + path.sep)
+      realPath === root || realPath.startsWith(root + path.sep)
     );
     if (!isSafe) {
       reply.code(403);
       return { error: "path outside allowed roots" };
     }
 
-    if (!fs.existsSync(resolved)) {
-      reply.code(404);
-      return { error: "file not found" };
-    }
+    // Fix 3: 文件大小保护（50MB 上限，避免同步读大文件卡事件循环）
+    const MAX_MEDIA_SIZE = 50 * 1024 * 1024;
+    try {
+      const stat = fs.statSync(realPath);
+      if (stat.size > MAX_MEDIA_SIZE) {
+        reply.code(413);
+        return { error: `file too large: ${(stat.size / 1024 / 1024).toFixed(1)}MB (max 50MB)` };
+      }
+    } catch { return reply.code(404).send({ error: "file not found" }); }
 
     try {
-      await bridgeManager.sendMediaFile(platform, chatId, resolved);
+      await bridgeManager.sendMediaFile(platform, chatId, realPath);
       return { ok: true };
     } catch (err) {
       reply.code(500);
