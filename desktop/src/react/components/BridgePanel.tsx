@@ -227,7 +227,7 @@ export function BridgePanel() {
                   <line x1="12" y1="17" x2="12.01" y2="17" />
                 </svg>
                 <div className={fp.bridgeOverlayText}>
-                  {t('bridge.notConfigured', { platform: platform === 'telegram' ? 'Telegram' : platform === 'whatsapp' ? 'WhatsApp' : platform === 'qq' ? 'QQ' : t('settings.bridge.feishu') })}
+                  {t('bridge.notConfigured', { platform: platform === 'telegram' ? 'Telegram' : platform === 'whatsapp' ? 'WhatsApp' : platform === 'qq' ? 'QQ' : platform === 'wechat' ? t('settings.bridge.wechat') : t('settings.bridge.feishu') })}
                 </div>
                 <button className={fp.bridgeOverlayBtn} onClick={() => window.platform.openSettings('bridge')}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
