@@ -16,6 +16,7 @@ import { createContextSlice, type ContextSlice } from './context-slice';
 import { createAutomationSlice, type AutomationSlice } from './automation-slice';
 import { createActivitySlice, type ActivitySlice } from './activity-slice';
 import { createBridgeSlice, type BridgeSlice } from './bridge-slice';
+import { createMediaSessionRejectSlice, type MediaSessionRejectSlice } from './media-session-reject-slice';
 
 export type StoreState = ConnectionSlice &
   SessionSlice &
@@ -33,19 +34,20 @@ export type StoreState = ConnectionSlice &
   ContextSlice &
   AutomationSlice &
   ActivitySlice &
-  BridgeSlice;
+  BridgeSlice &
+  MediaSessionRejectSlice;
 
-export const useStore = create<StoreState>()((set, _get, _api) => ({
+export const useStore = create<StoreState>()((set, get, _api) => ({
   ...createConnectionSlice(set),
   ...createSessionSlice(set),
   ...createStreamingSlice(set),
   ...createUiSlice(set),
   ...createAgentSlice(set),
   ...createChannelSlice(set),
-  ...createDeskSlice(set, _get),
+  ...createDeskSlice(set, get),
   ...createModelSlice(set),
   ...createInputSlice(set),
-  ...createChatSlice(set, _get),
+  ...createChatSlice(set, get),
   ...createToastSlice(set),
   ...createArtifactSlice(set),
   ...createBrowserSlice(set),
@@ -53,6 +55,7 @@ export const useStore = create<StoreState>()((set, _get, _api) => ({
   ...createAutomationSlice(set),
   ...createActivitySlice(set),
   ...createBridgeSlice(set),
+  ...createMediaSessionRejectSlice(set, get, _api),
 }));
 
 // Re-export slice types
@@ -74,4 +77,5 @@ export type {
   AutomationSlice,
   ActivitySlice,
   BridgeSlice,
+  MediaSessionRejectSlice,
 };

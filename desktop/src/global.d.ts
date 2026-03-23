@@ -6,6 +6,28 @@
 
 import type { PlatformApi } from './react/types';
 
+/** 旧版主窗口运行时（app.js 注入，InputArea 迁移期仍用） */
+interface HanaRuntimeState {
+  ws: WebSocket | null;
+  models?: unknown[];
+  currentModel?: unknown;
+}
+
+interface HanaSidebarShim {
+  ensureSession(): Promise<boolean>;
+  loadSessions(): void;
+}
+
+interface HanaChatRenderShim {
+  addUserMessage(text: string, files: unknown[] | null, arg: null): void;
+  breakAssistantGroup(): void;
+}
+
+interface HanaModulesBag {
+  sidebar: HanaSidebarShim;
+  chatRender: HanaChatRenderShim;
+}
+
 declare global {
   interface Window {
     // ── i18n ──
@@ -26,6 +48,10 @@ declare global {
 
     // ── OAuth session tracking ──
     __oauthSessionId?: string;
+
+    /** 旧版状态（InputArea 等迁移期仍读） */
+    __hanaState?: HanaRuntimeState;
+    HanaModules?: HanaModulesBag;
 
     // ── Notification bridge ──
     showNotification?: (title: string, body: string) => void;

@@ -5,6 +5,7 @@
  * IPC 仅用于：窗口管理、系统对话框、跨窗口消息转发。
  */
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
+const { pathToFileURL } = require("node:url");
 
 function resolveTheme() {
   const saved = localStorage.getItem("hana-theme") || "auto";
@@ -17,6 +18,7 @@ contextBridge.exposeInMainWorld("hana", {
   getServerToken: () => ipcRenderer.invoke("get-server-token"),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   checkUpdate: () => ipcRenderer.invoke("check-update"),
+  quitFully: () => ipcRenderer.invoke("app-quit-fully"),
   // Auto-update (Windows)
   autoUpdateCheck: () => ipcRenderer.invoke("auto-update-check"),
   autoUpdateDownload: () => ipcRenderer.invoke("auto-update-download"),
@@ -37,6 +39,15 @@ contextBridge.exposeInMainWorld("hana", {
   unwatchFile: (filePath) => ipcRenderer.invoke("unwatch-file", filePath),
   onFileChanged: (cb) => ipcRenderer.on("file-changed", (_, filePath) => cb(filePath)),
   readFileBase64: (path) => ipcRenderer.invoke("read-file-base64", path),
+  /** 将绝对路径转为 file:// URL，供无法在 http 页面直连本地文件时的回退 */
+  pathToFileURL: (p) => {
+    if (!p || typeof p !== "string") return "";
+    try {
+      return pathToFileURL(p).href;
+    } catch {
+      return "";
+    }
+  },
   readDocxHtml: (path) => ipcRenderer.invoke("read-docx-html", path),
   readXlsxHtml: (path) => ipcRenderer.invoke("read-xlsx-html", path),
   getFilePath: (file) => webUtils.getPathForFile(file),
@@ -51,6 +62,8 @@ contextBridge.exposeInMainWorld("hana", {
   onShowSkillViewer: (cb) => ipcRenderer.on("show-skill-viewer", (_, data) => cb(data)),
   // 设置窗口
   openSettings: (tab) => ipcRenderer.invoke("open-settings", tab, resolveTheme()),
+  getDebugWsClient: () => ipcRenderer.invoke("get-debug-ws-client"),
+  setDebugWsClient: (enabled) => ipcRenderer.invoke("set-debug-ws-client", !!enabled),
   settingsChanged: (type, data) => ipcRenderer.send("settings-changed", type, data),
   onSettingsChanged: (cb) => ipcRenderer.on("settings-changed", (_, type, data) => cb(type, data)),
   onSwitchTab: (cb) => ipcRenderer.on("settings-switch-tab", (_, tab) => cb(tab)),

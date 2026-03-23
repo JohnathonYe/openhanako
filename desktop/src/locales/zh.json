@@ -36,7 +36,10 @@
     "warningConfirm": "我了解了，开启频道",
     "disabled": "频道功能已关闭",
     "toggleLabel": "频道功能开关",
-    "members": "成员"
+    "members": "成员",
+    "docTitle": "频道长文",
+    "docClose": "关闭",
+    "docLoadError": "加载文档失败"
   },
   "sidebar": {
     "title": "对话",
@@ -111,9 +114,27 @@
     "workspace": "工作空间：",
     "selectWorkspace": "选择工作空间",
     "planMode": "操作电脑",
+    "planModeTooltipOn": "已启动（点击关闭）",
+    "planModeTooltipOff": "未启动（点击开启）",
     "deskContext": "看着书桌说",
     "pastedImage": "粘贴图片",
     "docContext": "看着文档说",
+    "multimodal": "看图/视频/语音",
+    "multimodalTooltipOn": "已启动（点击关闭）",
+    "multimodalTooltipOff": "未启动（点击开启）",
+    "multimodalTitle": "按下开启：图片/视频/语音会以多模态发给上游；是否接受由模型与 models.json 的 input 决定。不需要时可关闭改为仅发路径，由助手用 read_file / ffmpeg 等工具处理（技能 media-local-tools）。",
+    "mediaPickerTitle": "添加图片、视频或语音（最多 5 个，单图≤10MB，单视频/语音≤20MB）",
+    "mediaTooMany": "最多同时附加 5 个图片、视频或语音",
+    "imageTooLarge": "单张图片不得超过 10MB",
+    "videoTooLarge": "单个视频不得超过 20MB",
+    "audioTooLarge": "单条语音不得超过 20MB",
+    "modelMediaRemoved": "已移除当前模型不支持的媒体附件",
+    "mediaInvalidType": "仅支持常见图片、mp4/webm/mov 视频，或 mp3/wav/m4a 等常见音频",
+    "mediaReadFailed": "无法把附件读成模型可用的媒体数据，本次未发送。请打开多模态开关并确认文件可读，或关闭开关仅发送文件路径。",
+    "serializeFailed": "消息序列化失败，附件可能过大",
+    "payloadTooLarge": "整包消息超过传输上限（多为视频/语音/多图 Base64），请减少附件或关闭多模态仅发路径。",
+    "notConnected": "未连接服务器，无法发送",
+    "sendFailed": "发送失败：",
     "thinkingLevel": {
       "off": "关闭",
       "auto": "自动",
@@ -428,8 +449,21 @@
       "memory": "记忆",
       "work": "工作",
       "skills": "技能",
+      "tools": "工具",
       "bridge": "社交平台",
       "about": "关于"
+    },
+    "tools": {
+      "title": "工具",
+      "desc": "开启或关闭助手可用的工具，对新会话生效。",
+      "loading": "加载工具中…",
+      "kindBuiltin": "内置",
+      "kindCustom": "自定义",
+      "kindUserScript": "用户脚本",
+      "deleteTool": "删除工具",
+      "deleteConfirm": "确定删除工具「{name}」？对应脚本文件将被永久删除。",
+      "deleted": "工具已删除",
+      "deleteFailed": "删除失败"
     },
     "appearance": {
       "title": "外观",
@@ -481,6 +515,10 @@
       "namePlaceholder": "起个名字",
       "cancel": "取消",
       "confirm": "创建",
+      "pleaseWait": "请稍候…",
+      "creating": "正在创建助手…",
+      "switchingAfterCreate": "正在切换到新助手并加载配置，可能需要几秒…",
+      "createdReady": "{name} 已创建并已切换 ✿",
       "nameRequired": "请输入助手名字",
       "created": "{name} 已创建 ✿",
       "createFailed": "创建失败",
@@ -526,7 +564,12 @@
       "updateError": "检查更新失败",
       "updateLatest": "已是最新版本",
       "updateCheckBtn": "检查更新",
-      "betaUpdates": "接收测试版更新"
+      "betaUpdates": "接收测试版更新",
+      "quitFullyDesc": "关闭窗口后应用会最小化到托盘、Server 继续在后台运行。若需彻底退出应用并关闭 Server，请点击下方按钮。",
+      "quitFully": "完全退出",
+      "diagTitle": "诊断",
+      "debugWsLog": "主窗口 WebSocket 调试输出",
+      "debugWsLogDesc": "开启后，[hana-ws-client] 出现在主聊天窗口里 Chromium 的「开发者工具」里的「Console / 控制台」面板，不是 logs 文件夹里的文本日志。打开方式：快捷键 macOS ⌥⌘I（Option+Command+I），Windows/Linux Ctrl+Shift+I；或托盘图标右键 → 打开主窗口开发者工具。服务端在 ~/.hanako/logs/*.log 里的 [ws] 与这里是两套输出，可对照排查。"
     },
     "me": {
       "title": "我",
@@ -836,6 +879,10 @@
       "noCredentials": "请先填写 App ID 和 App Secret",
       "readOnly": "只读模式",
       "readOnlyDesc": "外部平台的机器人只能读取文件，不能执行写入和命令操作",
+      "replyAgent": "Bridge 助手",
+      "replyAgentLabel": "Telegram / 飞书 / QQ 使用的助手",
+      "replyAgentSameAsMain": "与主窗口当前助手一致",
+      "replyAgentHint": "未选择时由主窗口当前选中的助手处理外部消息。指定后，本人私聊（owner）、访客私聊与群聊访客回复均使用该助手的会话目录、模型、工具与人格（含对外意识）。",
       "howTo": "如何接入？",
       "tutorialTitle": "平台接入教程",
       "tutorialTgSteps": [
@@ -939,6 +986,8 @@
   },
   "activity": {
     "title": "助手活动",
+    "runNow": "立即开始",
+    "runNowBusy": "执行中…",
     "empty": "暂时没有活动记录，日常巡检或定时任务执行后会出现在这里",
     "back": "返回",
     "heartbeat": "日常巡检",
@@ -1260,11 +1309,18 @@
     "memorySearchDateToDesc": "结束日期，格式 YYYY-MM-DD",
     "memorySearchEmpty": "记忆库里没有找到相关内容。",
     "memorySearchError": "记忆搜索出错: {msg}",
-    "fallbackUserName": "用户"
+    "fallbackUserName": "用户",
+    "videoTooLarge": "单个视频不得超过 20MB",
+    "audioTooLarge": "单条语音不得超过 20MB",
+    "modelMediaNotSupported": "当前模型不支持此类媒体（{mime}）。请在 models.json 的 input 中加入 image、video 或 audio。",
+    "mediaOmittedForModel": "所附媒体与当前模型在 models.json 中声明的能力不符，已省略。",
+    "sessionMediaKindCached": "本会话中该模型已确认不支持此类附件（{kinds}）。可新开对话再试，或在 models.json 的 input 中声明对应能力。",
+    "emptyStreamNoOutput": "模型本轮未返回任何内容。可能是模型在当前地区不可用或上游临时故障，请切换模型后重试。"
   },
   "main": {
     "tray": {
       "show": "显示 Hanako",
+      "openMainDevTools": "打开主窗口开发者工具",
       "settings": "设置",
       "quit": "退出"
     },

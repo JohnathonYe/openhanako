@@ -9,11 +9,97 @@ import path from "path";
 import { callProviderText } from "../lib/llm/provider-client.js";
 import { getLocale } from "../server/i18n.js";
 
-/** Pi SDK content block 是否为工具调用（兼容 tool_use / toolCall 两种格式） */
+/**
+ * 本项目中，助手消息里工具调用的统一格式（由 Pi SDK 解析模型输出后得到）：
+ * - content 中块类型为 "tool_use" 或 "toolCall"
+ * - 块内必有 name（工具名），参数在 input 或 arguments（单个 JSON 对象）
+ * - 执行时以 (toolCallId, params) 调用 tool.execute，params 即上述 JSON 对象
+ * 若模型/厂商返回其他格式（如 XML <invoke>/<parameter>），通过 normalizeToolCallContent 转为上述格式后全项目统一使用。
+ */
 export const isToolCallBlock = (b) => (b.type === "tool_use" || b.type === "toolCall") && !!b.name;
 
 /** 取工具调用参数（兼容 input / arguments） */
 export const getToolArgs = (b) => b.input || b.arguments;
+
+// ─── XML <invoke>/<parameter> 解析（兼容 Minimax 等返回 XML 工具调用的模型） ───
+
+const INVOKE_REGEX = /<invoke\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/invoke>/gi;
+const PARAM_REGEX = /<parameter\s+name=["']([^"']+)["']\s*>([\s\S]*?)<\/parameter>/gi;
+const PARAM_SELF_CLOSE_REGEX = /<parameter\s+name=["']([^"']+)["']\s*\/>/gi;
+
+function tryParseValue(str) {
+  const s = typeof str === "string" ? str.trim() : String(str);
+  if (s === "") return s;
+  if (/^true$/i.test(s)) return true;
+  if (/^false$/i.test(s)) return false;
+  if (/^-?\d+$/.test(s)) return parseInt(s, 10);
+  if (/^-?\d*\.\d+$/.test(s)) return parseFloat(s);
+  try {
+    const parsed = JSON.parse(s);
+    if (typeof parsed === "object" && parsed !== null) return parsed;
+    return parsed;
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * 从文本中解析所有 <invoke name="...">...</invoke>，转为标准工具调用形状
+ * @param {string} text - 可能包含 <invoke><parameter name="...">...</parameter></invoke> 的文本
+ * @returns {Array<{ name: string, input: Record<string, unknown> }>}
+ */
+export function parseInvokeXml(text) {
+  if (typeof text !== "string" || !text.includes("invoke")) return [];
+  const out = [];
+  let m;
+  INVOKE_REGEX.lastIndex = 0;
+  while ((m = INVOKE_REGEX.exec(text)) !== null) {
+    const name = m[1].trim();
+    const inner = m[2] || "";
+    const input = {};
+    PARAM_REGEX.lastIndex = 0;
+    let pm;
+    while ((pm = PARAM_REGEX.exec(inner)) !== null) {
+      input[pm[1].trim()] = tryParseValue(pm[2]);
+    }
+    PARAM_SELF_CLOSE_REGEX.lastIndex = 0;
+    while ((pm = PARAM_SELF_CLOSE_REGEX.exec(inner)) !== null) {
+      if (input[pm[1].trim()] === undefined) input[pm[1].trim()] = "";
+    }
+    out.push({ name, input });
+  }
+  return out;
+}
+
+/**
+ * 将 content（string 或 content 块数组）归一化为标准块数组：文本中的 <invoke> 转为 tool_use 块
+ * 全项目统一在「消费」content 前调用，保证无论模型返回 JSON 还是 XML 都能得到一致的 tool_use 形态
+ * @param {string | Array<{ type: string, text?: string, name?: string, input?: object, arguments?: object }>} content
+ * @returns {Array<{ type: string, text?: string, name?: string, input?: object }>}
+ */
+export function normalizeToolCallContent(content) {
+  const blocks = typeof content === "string"
+    ? [{ type: "text", text: content }]
+    : Array.isArray(content)
+      ? content.slice()
+      : [];
+  const result = [];
+  for (const block of blocks) {
+    if (block.type === "text" && typeof block.text === "string") {
+      const invokes = parseInvokeXml(block.text);
+      for (const { name, input } of invokes) {
+        result.push({ type: "tool_use", name, input });
+      }
+      const stripped = block.text.replace(INVOKE_REGEX, "").trim();
+      if (stripped) result.push({ type: "text", text: stripped });
+    } else if (isToolCallBlock(block)) {
+      result.push(block);
+    } else {
+      result.push(block);
+    }
+  }
+  return result;
+}
 
 /**
  * 统一的 utility LLM 调用
@@ -58,9 +144,10 @@ function parseSessionContent(sessionPath, { userLimit = 1000, assistantLimit = 1
       userText = textParts.map(c => c.text).join("\n").slice(0, userLimit);
     }
     if (msg.role === "assistant") {
-      const textParts = (msg.content || []).filter(c => c.type === "text");
+      const normalized = normalizeToolCallContent(msg.content || []);
+      const textParts = normalized.filter(c => c.type === "text");
       assistantText = textParts.map(c => c.text).join("\n").slice(0, assistantLimit);
-      const toolParts = (msg.content || []).filter(isToolCallBlock);
+      const toolParts = normalized.filter(isToolCallBlock);
       for (const t of toolParts) toolCalls.push(t.name || "unknown_tool");
     }
   }

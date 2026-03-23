@@ -30,6 +30,11 @@ import { BridgeManager } from "../lib/bridge/bridge-manager.js";
 /** 匹配 timeTag 前缀（[MM-DD HH:mm] ）后跟预期文本 */
 const tagged = (text) => expect.stringMatching(new RegExp(`^\\[\\d{2}-\\d{2} \\d{2}:\\d{2}\\] ${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`));
 
+/** 群聊路径不 await _flushGroupMessage；用 macrotask 确保 hub.send / sendReply 已跑完 */
+function flushAfterGroupHandle() {
+  return new Promise((r) => setImmediate(r));
+}
+
 function createMocks() {
   const adapter = {
     sendReply: vi.fn().mockResolvedValue(),
@@ -38,9 +43,11 @@ function createMocks() {
   };
 
   const engine = {
+    hanakoHome: "/tmp/hana-bridge-test-home",
     getPreferences: vi.fn().mockReturnValue({
       bridge: { owner: { telegram: "owner123" } },
     }),
+    getBridgeAgent: vi.fn().mockReturnValue({ agentName: "TestAgent" }),
     isBridgeSessionStreaming: vi.fn().mockReturnValue(false),
     abortBridgeSession: vi.fn().mockResolvedValue(false),
     steerBridgeSession: vi.fn().mockReturnValue(false),
@@ -75,6 +82,14 @@ describe("BridgeManager._handleMessage", () => {
   // ── Group messages ──
 
   describe("group fast path", () => {
+    // 群聊用 setImmediate 排空时需真实定时器；与外层 fake timers 不兼容
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+    afterEach(() => {
+      vi.useFakeTimers();
+    });
+
     it("sends immediately without debounce", async () => {
       const { bm, hub, adapter } = createMocks();
 
@@ -86,6 +101,7 @@ describe("BridgeManager._handleMessage", () => {
         isGroup: true,
         chatId: "g1",
       });
+      await flushAfterGroupHandle();
 
       expect(hub.send).toHaveBeenCalledOnce();
       expect(hub.send).toHaveBeenCalledWith(
@@ -106,6 +122,7 @@ describe("BridgeManager._handleMessage", () => {
         isGroup: true,
         chatId: "g1",
       });
+      await flushAfterGroupHandle();
 
       expect(hub.send).toHaveBeenCalledWith(tagged("Bob: hi there"), expect.any(Object));
     });

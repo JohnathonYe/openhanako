@@ -36,7 +36,10 @@
     "disabled": "Channels disabled",
     "toggleLabel": "Channel toggle",
     "members": "Members",
-    "createIntroOptional": "Description"
+    "createIntroOptional": "Description",
+    "docTitle": "Channel document",
+    "docClose": "Close",
+    "docLoadError": "Failed to load document"
   },
   "sidebar": {
     "title": "Chats",
@@ -111,9 +114,27 @@
     "workspace": "Workspace: ",
     "selectWorkspace": "Select workspace",
     "planMode": "Use computer",
+    "planModeTooltipOn": "On — click to turn off",
+    "planModeTooltipOff": "Off — click to enable",
     "deskContext": "With desk context",
     "pastedImage": "Pasted image",
     "docContext": "With document",
+    "multimodal": "Image / video / voice",
+    "multimodalTooltipOn": "On — click to turn off",
+    "multimodalTooltipOff": "Off — click to enable",
+    "multimodalTitle": "Press to enable: media is sent upstream as multimodal; acceptance depends on the model and models.json \"input\". Turn off to send paths only and let the agent use read_file / ffmpeg etc. (skill: media-local-tools).",
+    "mediaPickerTitle": "Add image, video, or audio (max 5; image ≤10MB; video/audio ≤20MB)",
+    "mediaTooMany": "At most 5 images, videos, or audio clips at once",
+    "imageTooLarge": "Each image must be under 10MB",
+    "videoTooLarge": "Each video must be under 20MB",
+    "audioTooLarge": "Each audio clip must be under 20MB",
+    "modelMediaRemoved": "Removed attachments that the current model does not support",
+    "mediaInvalidType": "Only common images, mp4/webm/mov video, or common audio (mp3, wav, m4a, …)",
+    "mediaReadFailed": "Could not read the attachment as media data for the model; message not sent. Enable multimodal and ensure the file is readable, or turn it off to send the path only.",
+    "serializeFailed": "Failed to serialize message; attachments may be too large",
+    "payloadTooLarge": "Message exceeds the WebSocket size limit (often large video/audio/image Base64). Reduce attachments or turn off multimodal to send paths only.",
+    "notConnected": "Not connected to server",
+    "sendFailed": "Send failed: ",
     "thinkingLevel": {
       "off": "off",
       "auto": "auto",
@@ -428,8 +449,21 @@
       "memory": "Memory",
       "work": "Work",
       "skills": "Skills",
+      "tools": "Tools",
       "bridge": "Social",
       "about": "About"
+    },
+    "tools": {
+      "title": "Tools",
+      "desc": "Enable or disable tools for the assistant. Changes apply to new sessions.",
+      "loading": "Loading tools…",
+      "kindBuiltin": "Built-in",
+      "kindCustom": "Custom",
+      "kindUserScript": "User script",
+      "deleteTool": "Delete tool",
+      "deleteConfirm": "Delete tool \"{name}\"? The script file will be removed permanently.",
+      "deleted": "Tool deleted",
+      "deleteFailed": "Delete failed"
     },
     "appearance": {
       "title": "Appearance",
@@ -481,6 +515,10 @@
       "namePlaceholder": "Give them a name",
       "cancel": "Cancel",
       "confirm": "Create",
+      "pleaseWait": "Please wait…",
+      "creating": "Creating agent…",
+      "switchingAfterCreate": "Switching to the new agent and loading settings — this may take a few seconds…",
+      "createdReady": "{name} is ready ✿",
       "nameRequired": "Please enter a name",
       "created": "{name} created ✿",
       "createFailed": "Create failed",
@@ -526,7 +564,12 @@
       "updateError": "Update check failed",
       "updateLatest": "You're up to date",
       "updateCheckBtn": "Check for updates",
-      "betaUpdates": "Receive beta updates"
+      "betaUpdates": "Receive beta updates",
+      "quitFullyDesc": "Closing the window only hides the app to the tray; the Server keeps running. To quit the app and stop the Server, use the button below.",
+      "quitFully": "Quit completely",
+      "diagTitle": "Diagnostics",
+      "debugWsLog": "Main window WebSocket debug logging",
+      "debugWsLogDesc": "When enabled, [hana-ws-client] appears in the Console tab of the main window Chromium Developer Tools — not in the text files under logs/. Open with macOS ⌥⌘I, Ctrl+Shift+I on Windows/Linux, or Tray → Open main window Developer Tools. Server [ws] lines are in ~/.hanako/logs/*.log (separate stream)."
     },
     "me": {
       "title": "Me",
@@ -836,6 +879,10 @@
       "noCredentials": "Please enter App ID and App Secret first",
       "readOnly": "Read-only mode",
       "readOnlyDesc": "Bridge bots can only read files, no writing or command execution",
+      "replyAgent": "Bridge assistant",
+      "replyAgentLabel": "Assistant for Telegram / Feishu / QQ",
+      "replyAgentSameAsMain": "Same as main window",
+      "replyAgentHint": "When unset, the assistant selected in the main window handles Bridge. When set, all Bridge traffic (your owner DMs, guest DMs, and group guest replies) uses this assistant’s sessions, model, tools, and public persona.",
       "howTo": "Setup Guide",
       "tutorialTitle": "Platform Setup Guide",
       "tutorialTgSteps": [
@@ -939,6 +986,8 @@
   },
   "activity": {
     "title": "Activity",
+    "runNow": "Start now",
+    "runNowBusy": "Running…",
     "empty": "No activity yet. Patrol runs and scheduled tasks will appear here.",
     "back": "Back",
     "heartbeat": "Routine patrol",
@@ -1260,11 +1309,18 @@
     "memorySearchDateToDesc": "End date, format YYYY-MM-DD",
     "memorySearchEmpty": "No relevant content found in memory.",
     "memorySearchError": "Memory search error: {msg}",
-    "fallbackUserName": "User"
+    "fallbackUserName": "User",
+    "videoTooLarge": "Each video must be under 20MB",
+    "audioTooLarge": "Each audio clip must be under 20MB",
+    "modelMediaNotSupported": "This model does not support this media type ({mime}). Add image, video, and/or audio to the model's \"input\" array in models.json.",
+    "mediaOmittedForModel": "Attached media was omitted because it is not declared for this model in models.json.",
+    "sessionMediaKindCached": "In this chat, this model already failed on this media type ({kinds}). Start a new chat to try again, or declare the capability in models.json \"input\".",
+    "emptyStreamNoOutput": "The model returned no output for this turn. It may be unavailable in your region or temporarily failing upstream. Please switch models and try again."
   },
   "main": {
     "tray": {
       "show": "Show Hanako",
+      "openMainDevTools": "Open main window DevTools",
       "settings": "Settings",
       "quit": "Quit"
     },

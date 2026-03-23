@@ -434,6 +434,8 @@ function App() {
           </div>
 
           <div className={`input-area${currentTab === 'chat' ? '' : ' hidden'}`}>
+            {/* InputArea 通过 createPortal 挂到此节点；须存在于 DOM（全 React 后 index.html 不再内联该 div） */}
+            <div id="inputAreaPortal" />
             <InputArea />
           </div>
 

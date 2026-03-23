@@ -12,6 +12,9 @@ import YAML from "js-yaml";
 import { loadGlobalProviders, resolveApiKeyFromAuth } from "../lib/memory/config-loader.js";
 import { t } from "../server/i18n.js";
 
+/** Pi `model.input`：新建与缺省回填时的默认多模态能力 */
+const DEFAULT_MODEL_INPUT = ["text", "image", "audio", "video"];
+
 /** @deprecated 仅作为 fallback，调用方应通过 opts.modelsJsonPath 传入 */
 function getDefaultModelsJsonPath() {
   const hanakoHome = process.env.HANA_HOME
@@ -45,7 +48,7 @@ function generateModelDefaults(modelId) {
   const entry = {
     id: modelId,
     name: known?.name || humanizeName(modelId),
-    input: ["text", "image"],
+    input: [...DEFAULT_MODEL_INPUT],
     contextWindow: known?.context || DEFAULT_CONTEXT_WINDOW,
   };
   if (known?.maxOutput) entry.maxTokens = known.maxOutput;
@@ -209,11 +212,9 @@ export function syncFavoritesToModelsJson(configPath, opts = {}) {
         const existing = { ...existingModels.get(mid) };
         const known = _knownModels[mid];
         if (!existing.name) existing.name = known?.name || humanizeName(mid);
-        // 补全 input 字段（旧版本创建的条目可能缺 "image"，Pi SDK 会静默过滤图片）
         if (!existing.input || !existing.input.includes("image")) {
-          existing.input = ["text", "image"];
+          existing.input = [...DEFAULT_MODEL_INPUT];
         }
-        // 补全 contextWindow / maxTokens（从 known-models.json）
         if (!existing.contextWindow && known?.context) existing.contextWindow = known.context;
         if (!existing.maxTokens && known?.maxOutput) existing.maxTokens = known.maxOutput;
         modelList.push(existing);
@@ -240,7 +241,7 @@ export function syncFavoritesToModelsJson(configPath, opts = {}) {
         const copy = { ...m };
         const km = _knownModels[copy.id];
         if (!copy.name) copy.name = km?.name || humanizeName(copy.id);
-        if (!copy.input || !copy.input.includes("image")) copy.input = ["text", "image"];
+        if (!copy.input || !copy.input.includes("image")) copy.input = [...DEFAULT_MODEL_INPUT];
         if (!copy.contextWindow && km?.context) copy.contextWindow = km.context;
         if (!copy.maxTokens && km?.maxOutput) copy.maxTokens = km.maxOutput;
         return copy;

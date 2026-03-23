@@ -10,8 +10,11 @@
 import fs from "fs";
 import path from "path";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { debugLog } from "../lib/debug-log.js";
 import { t } from "../server/i18n.js";
+import { wrapStreamFnForInvokeXml } from "../core/stream-invoke-normalizer.js";
+import { runWithToolInvocationContext } from "../lib/tools/tool-invocation-context.js";
 
 /**
  * 以指定 agentId 的身份跑一次临时会话。
@@ -27,9 +30,37 @@ import { t } from "../server/i18n.js";
  * @param {boolean} [opts.noMemory=false] - 不注入记忆，只用 personality
  * @param {boolean} [opts.noTools=false] - 不注入工具
  * @param {boolean} [opts.readOnly=false] - 只读模式（只保留读取类工具，排除写/编辑/ask_agent/dm 等）
+ * @param {{ ephemeral?: boolean, channelName?: string }} [opts.invocationContext] - 与工具共享的调用上下文（默认合并 ephemeral: true）
  * @returns {Promise<string>}  capture 轮的输出（已去掉 MOOD 块）
  */
-export async function runAgentSession(agentId, rounds, { engine, signal, sessionSuffix = "temp", systemAppend, keepSession = false, noMemory = false, noTools = false, readOnly = false } = {}) {
+export async function runAgentSession(agentId, rounds, opts = {}) {
+  const {
+    engine,
+    signal,
+    sessionSuffix = "temp",
+    systemAppend,
+    keepSession = false,
+    noMemory = false,
+    noTools = false,
+    readOnly = false,
+    invocationContext = null,
+  } = opts;
+
+  const mergedInvocation = { ephemeral: true, ...(invocationContext || {}) };
+
+  return runWithToolInvocationContext(mergedInvocation, () => runAgentSessionBody(agentId, rounds, {
+    engine,
+    signal,
+    sessionSuffix,
+    systemAppend,
+    keepSession,
+    noMemory,
+    noTools,
+    readOnly,
+  }));
+}
+
+async function runAgentSessionBody(agentId, rounds, { engine, signal, sessionSuffix = "temp", systemAppend, keepSession = false, noMemory = false, noTools = false, readOnly = false }) {
   // 1. 从长驻 Map 获取 Agent 实例
   const agent = engine.getAgent(agentId);
   if (!agent) {
@@ -59,7 +90,7 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
     tools = [];
     customTools = [];
   } else {
-    const built = ctx.buildTools(cwd, agent.tools, { agentDir, workspace: engine.homeCwd });
+    const built = await ctx.buildTools(cwd, agent.tools, { agentDir, workspace: engine.homeCwd });
     if (readOnly) {
       const READ_ONLY_BUILTIN = ["read", "grep", "find", "ls"];
       const READ_ONLY_CUSTOM = ["search_memory", "recall_experience", "web_search", "web_fetch"];
@@ -89,6 +120,7 @@ export async function runAgentSession(agentId, rounds, { engine, signal, session
     resourceLoader: tempResourceLoader,
     tools,
     customTools,
+    streamFn: wrapStreamFnForInvokeXml(streamSimple),
   });
 
   // 4. AbortSignal 连接

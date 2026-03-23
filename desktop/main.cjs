@@ -88,6 +88,7 @@ let serverProcess = null;
 let serverPort = null;
 let serverToken = null;
 let isQuitting = false;  // 区分关窗口（hide）和真正退出（quit）
+let fullQuitRequested = false; // 设置页「完全退出」或托盘「退出」：Server 退出时不要自动重启
 let tray = null;
 let reusedServerPid = null; // 复用已有 server 时记录其 PID，退出时发 SIGTERM
 let isExitingServer = false; // 只有托盘"退出"时才 kill server，其余路径仅关前端
@@ -261,6 +262,11 @@ async function startServer() {
           serverToken = existingInfo.token;
           reusedServerPid = existingInfo.pid;
           reused = true;
+          // 复用 server 时同步 skills2set 并重载技能，避免内置技能（如 cdp-browser-guide）仍是旧版
+          fetch(`http://127.0.0.1:${existingInfo.port}/api/skills/reload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${existingInfo.token}` },
+          }).catch(() => {});
         }
       } catch { /* health check 网络抖动，继续 kill 旧 server */ }
 
@@ -376,7 +382,7 @@ let _serverRestartAttempts = 0;
 function monitorServer() {
   if (!serverProcess) return;
   serverProcess.on("exit", async (code, signal) => {
-    if (isQuitting) return; // 正常退出流程
+    if (isQuitting || fullQuitRequested) return; // 正常退出或用户主动完全退出，不自动重启
     const reason = signal ? `信号 ${signal}` : `退出码 ${code}`;
     console.error(`[desktop] Server 意外退出 (${reason})`);
 
@@ -441,9 +447,22 @@ function createTray() {
 
   const buildMenu = () => Menu.buildFromTemplate([
     { label: mt("tray.show", null, "Show Hanako"), click: () => showPrimaryWindow() },
+    {
+      label: mt("tray.openMainDevTools", null, "Open main window DevTools"),
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.openDevTools();
+        }
+      },
+    },
     { label: mt("tray.settings", null, "Settings"), click: () => createSettingsWindow() },
     { type: "separator" },
-    { label: mt("tray.quit", null, "Quit"), click: () => { isExitingServer = true; isQuitting = true; app.quit(); } },
+    {
+      label: mt("tray.quit", null, "Quit"),
+      click: () => { fullQuitRequested = true; isExitingServer = true; isQuitting = true; app.quit(); },
+    },
   ]);
 
   tray.setContextMenu(buildMenu());
@@ -1371,6 +1390,13 @@ ipcMain.handle("check-update", () => {
   }
   return null;
 });
+/** 完全退出：关闭前端并关闭 Server（供设置页「完全退出」按钮调用） */
+ipcMain.handle("app-quit-fully", () => {
+  fullQuitRequested = true;
+  isExitingServer = true;
+  isQuitting = true;
+  app.quit();
+});
 
 ipcMain.handle("open-settings", (_event, tab, theme) => createSettingsWindow(tab, theme));
 
@@ -1485,6 +1511,41 @@ ipcMain.handle("editor-close", () => {
   if (editorWindow && !editorWindow.isDestroyed()) {
     editorWindow.hide();
   }
+});
+
+// ── 桌面端杂项标志（设置窗口与主窗口 localStorage 不同步时，用文件 + IPC 统一） ──
+function desktopFlagsPath() {
+  return path.join(app.getPath("userData"), "desktop-flags.json");
+}
+
+function readDesktopFlags() {
+  try {
+    const raw = fs.readFileSync(desktopFlagsPath(), "utf8");
+    const o = JSON.parse(raw);
+    return o && typeof o === "object" ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDesktopFlags(obj) {
+  try {
+    fs.mkdirSync(path.dirname(desktopFlagsPath()), { recursive: true });
+    fs.writeFileSync(desktopFlagsPath(), JSON.stringify(obj, null, 2), "utf8");
+  } catch (e) {
+    console.error("[desktop-flags] write failed:", e.message);
+  }
+}
+
+ipcMain.handle("get-debug-ws-client", () => !!readDesktopFlags().debugWsClient);
+
+ipcMain.handle("set-debug-ws-client", (_event, enabled) => {
+  const next = { ...readDesktopFlags(), debugWsClient: !!enabled };
+  writeDesktopFlags(next);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-changed", "debug-ws-client", { enabled: !!enabled });
+  }
+  return true;
 });
 
 // 设置窗口 → 主窗口的消息转发
@@ -1775,12 +1836,13 @@ ipcMain.handle("unwatch-file", (_event, filePath) => {
 });
 
 // 读取二进制文件为 base64（图片、PDF 等）
+// 单文件 20MB：与 lib/media-limits.js 中 MAX_VIDEO_BYTES 一致（视频预览/多模态上限）
 ipcMain.handle("read-file-base64", (_event, filePath) => {
   if (!filePath || !path.isAbsolute(filePath)) return null;
   try {
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) return null;
-    if (stat.size > 20 * 1024 * 1024) return null; // 20MB 限制
+    if (stat.size > 20 * 1024 * 1024) return null;
     return fs.readFileSync(filePath).toString("base64");
   } catch { return null; }
 });
@@ -2024,6 +2086,12 @@ app.on("before-quit", async (event) => {
   _browserViews.clear();
   _browserWebView = null;
   _currentBrowserSession = null;
+
+  // 完全退出时先销毁托盘，否则 window-all-closed 会因「有托盘」而不调用 app.quit()，进程无法退出、菜单栏仍显示 Hanako
+  if (tray && !tray.isDestroyed()) {
+    tray.destroy();
+    tray = null;
+  }
 
   // 完全退出：同时 kill server
   if (serverProcess && !serverProcess.killed) {

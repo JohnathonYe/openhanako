@@ -14,6 +14,13 @@ vi.mock("@mariozechner/pi-coding-agent", () => ({
     create: sessionManagerCreateMock,
     open: vi.fn(),
   },
+  SettingsManager: {
+    inMemory: () => ({}),
+  },
+}));
+
+vi.mock("@mariozechner/pi-ai", () => ({
+  streamSimple: vi.fn(),
 }));
 
 vi.mock("../lib/debug-log.js", () => ({
@@ -70,7 +77,7 @@ describe("SessionCoordinator", () => {
       }),
       getResourceLoader: () => resourceLoader,
       getSkills: () => null,
-      buildTools: () => ({ tools: [], customTools: [] }),
+      buildTools: async () => ({ tools: [], customTools: [] }),
       emitEvent: () => {},
       getHomeCwd: () => "/tmp/home",
       agentIdFromSessionPath: () => null,
@@ -130,7 +137,7 @@ describe("SessionCoordinator", () => {
       }),
       getResourceLoader: () => ({ getSystemPrompt: () => "prompt" }),
       getSkills: () => ({ getSkillsForAgent: () => [] }),
-      buildTools: () => ({ tools: [], customTools: [] }),
+      buildTools: async () => ({ tools: [], customTools: [] }),
       emitEvent: () => {},
       getHomeCwd: () => tempDir,
       agentIdFromSessionPath: () => null,

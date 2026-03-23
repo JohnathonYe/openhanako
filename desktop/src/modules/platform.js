@@ -33,6 +33,7 @@
     // 文件 I/O → server HTTP
     readFile: (p) => apiFetch(`/api/fs/read?path=${encodeURIComponent(p)}`).then(r => r.ok ? r.text() : null),
     readFileBase64: (p) => apiFetch(`/api/fs/read-base64?path=${encodeURIComponent(p)}`).then(r => r.ok ? r.text() : null),
+    pathToFileURL: () => "",
     readDocxHtml: (p) => apiFetch(`/api/fs/docx-html?path=${encodeURIComponent(p)}`).then(r => r.ok ? r.text() : null),
     readXlsxHtml: (p) => apiFetch(`/api/fs/xlsx-html?path=${encodeURIComponent(p)}`).then(r => r.ok ? r.text() : null),
 
@@ -64,6 +65,13 @@
     // 窗口管理 → 单页降级
     openSettings: () => {},
     reloadMainWindow: () => location.reload(),
+
+    getDebugWsClient: async () => localStorage.getItem("HANA_DEBUG_WS") === "1",
+    setDebugWsClient: async (enabled) => {
+      if (enabled) localStorage.setItem("HANA_DEBUG_WS", "1");
+      else localStorage.removeItem("HANA_DEBUG_WS");
+      return true;
+    },
 
     // 设置通信 → Web 环境暂不支持跨窗口
     settingsChanged: () => {},

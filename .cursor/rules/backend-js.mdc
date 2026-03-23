@@ -1,0 +1,43 @@
+---
+description: core/ 与 lib/ 下 JavaScript 模块的书写规范
+globs: core/**/*.js, lib/**/*.js
+alwaysApply: false
+---
+
+# 后端 JS 模块规范（core / lib）
+
+## 格式与注释
+
+- 使用 **ESM**：`import` / `export`，扩展名 `.js`
+- 文件顶部用 JSDoc 或块注释说明模块职责；复杂逻辑用分节注释（`// ───` 或 `// ═══`）
+
+```javascript
+/**
+ * compile.js — 记忆编译器（v3 四块独立编译 + assemble）
+ * 四个独立函数各自有指纹缓存...
+ */
+```
+
+## 导出
+
+- 单一路由/入口：`export default function agentsRoute(app, { engine }) { ... }`
+- 多函数/类：具名导出 `export async function compileToday(...)`、`export class HanaEngine`
+
+## JSDoc
+
+- 对复杂参数或返回值使用 `@param`、`@returns`，类型可用 `@typedef` 或内联 `{string}`
+
+```javascript
+/**
+ * @param {import('./session-summary.js').SessionSummaryManager} summaryManager
+ * @param {string} outputPath
+ * @returns {Promise<"compiled"|"skipped">}
+ */
+export async function compileToday(summaryManager, outputPath, configPath, model) {
+```
+
+## 命名
+
+- 类、构造函数：PascalCase（`HanaEngine`, `AgentManager`）
+- 函数、变量：camelCase
+- 文件名：小写连字符（`config-coordinator.js`, `session-summary.js`）

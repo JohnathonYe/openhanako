@@ -101,10 +101,12 @@ function seedDefaultAgent(agentsDir, productDir) {
 }
 
 /**
- * 同步 skills2set/ → ~/.hanako/skills/
- * 每次启动都跑，确保新增/更新的 skill 能同步到用户目录
+ * 同步 skills2set/ → 目标 skills 目录（覆盖已有文件）
+ * 供 ensureFirstRun 与 engine.init 复用，确保每次启动都用到最新的内置技能
+ * @param {string} srcDir - skills2set 目录（项目内）
+ * @param {string} dstDir - ~/.hanako/skills 或 HANA_HOME/skills
  */
-function syncSkills(srcDir, dstDir) {
+export function syncSkills(srcDir, dstDir) {
   fs.mkdirSync(dstDir, { recursive: true });
 
   const entries = fs.readdirSync(srcDir, { withFileTypes: true });

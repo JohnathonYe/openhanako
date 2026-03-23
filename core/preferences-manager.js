@@ -140,6 +140,19 @@ export class PreferencesManager {
     return this.getPreferences().primaryAgent || null;
   }
 
+  /** 读取已禁用的工具 id 列表（全局，跨 agent） */
+  getToolsDisabled() {
+    const arr = this.getPreferences().tools_disabled;
+    return Array.isArray(arr) ? arr : [];
+  }
+
+  /** 保存已禁用的工具 id 列表 */
+  setToolsDisabled(disabled) {
+    const prefs = this.getPreferences();
+    prefs.tools_disabled = Array.isArray(disabled) ? disabled : [];
+    this.savePreferences(prefs);
+  }
+
   /** 保存 primary agent ID */
   savePrimaryAgent(agentId) {
     const prefs = this.getPreferences();

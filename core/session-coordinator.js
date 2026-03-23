@@ -13,9 +13,12 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import { streamSimple } from "@mariozechner/pi-ai";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
 import { t, getLocale } from "../server/i18n.js";
+import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
+import { filterImagesForModelInput } from "../lib/model-media-capabilities.js";
 
 const log = createModuleLogger("session");
 
@@ -53,6 +56,7 @@ export class SessionCoordinator {
    * @param {(agentId) => object} deps.getActivityStore
    * @param {(agentId) => object|null} deps.getAgentById
    * @param {() => object} deps.listAgents - 列出所有 agent
+   * @param {() => Promise<void>} [deps.flushBridgeOwnerMemory] - 收尾 Bridge 本人会话记忆
    */
   constructor(deps) {
     this._d = deps;
@@ -95,7 +99,11 @@ export class SessionCoordinator {
     const creatingAgent = agent;
     creatingAgent.setMemoryEnabled(memoryEnabled);
 
-    const { tools: sessionTools, customTools: sessionCustomTools } = this._d.buildTools(effectiveCwd, null, { workspace: this._d.getHomeCwd() });
+    const { tools: sessionTools, customTools: sessionCustomTools } = await this._d.buildTools(
+      effectiveCwd,
+      null,
+      { workspace: this._d.getHomeCwd() },
+    );
     const { session } = await createAgentSession({
       cwd: effectiveCwd,
       sessionManager: sessionMgr,
@@ -107,11 +115,15 @@ export class SessionCoordinator {
       resourceLoader: this._d.getResourceLoader(),
       tools: sessionTools,
       customTools: sessionCustomTools,
+      streamFn: wrapStreamFnForInvokeXml(streamSimple),
     });
     const elapsed = Date.now() - t0;
     log.log(`session created (${elapsed}ms), model=${models.currentModel?.name || "?"}`);
     this._session = session;
     this._sessionStarted = false;
+
+    // 按当前「操作电脑」状态过滤工具：未开启时禁用 cdp_local_browser、single_use_browser、create_script_tool、install_skill 及技能 cdp-browser-guide
+    if (this._d.syncPlanModeToSession) this._d.syncPlanModeToSession();
 
     // 事件转发
     const sessionPath = session.sessionManager?.getSessionFile?.();
@@ -147,16 +159,14 @@ export class SessionCoordinator {
   }
 
   async switchSession(sessionPath) {
-    const targetAgentId = this._d.agentIdFromSessionPath(sessionPath);
-    if (targetAgentId && targetAgentId !== this._d.getActiveAgentId()) {
-      // Phase 1: 跨 agent 切换只切指针，不清旧 session
-      await this._d.switchAgentOnly(targetAgentId);
-    }
+    // 不按「文件所在 agents/某 id/sessions」强制切换主助手：
+    // handoff 合并同一条 JSONL 后，文件仍在原助手目录，primary 已是转交目标；
+    // 若此处 switchAgentOnly(路径归属)，会把主助手切错号，后续回复人格错乱。
+    // 打开会话始终以**当前** primary 重建 Pi session（与 reopenSessionAtPath / bridge 一致）。
 
-    // 从 session-meta.json 恢复记忆开关
     let memoryEnabled = true;
     try {
-      const metaPath = path.join(this._d.getAgent().sessionDir, "session-meta.json");
+      const metaPath = path.join(path.dirname(sessionPath), "session-meta.json");
       const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
       const sessKey = path.basename(sessionPath);
       if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
@@ -193,7 +203,52 @@ export class SessionCoordinator {
         await oldAgent?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
       }
     }
-    const sessionMgr = SessionManager.open(sessionPath, this._d.getAgent().sessionDir);
+    const sessionDir = path.dirname(sessionPath);
+    const sessionMgr = SessionManager.open(sessionPath, sessionDir);
+    const cwd = sessionMgr.getCwd?.() || undefined;
+    return this.createSession(sessionMgr, cwd, memoryEnabled);
+  }
+
+  /**
+   * handoff 专用：在已 switchAgentOnly(目标) 后，用**同一** JSONL 路径重建 Pi session（模型可见完整历史）。
+   * sessionPath 可位于原助手目录下；SessionManager 使用文件所在目录为第二参数（与 bridge 一致）。
+   * @param {string} sessionPath
+   */
+  async reopenSessionAtPath(sessionPath) {
+    const agentsDir = this._d.agentsDir;
+    const resolved = path.resolve(sessionPath);
+    const base = path.resolve(agentsDir);
+    if (!resolved.startsWith(base + path.sep) && resolved !== base) {
+      throw new Error("reopenSessionAtPath: 非法 session 路径");
+    }
+    if (!fs.existsSync(resolved)) {
+      throw new Error(`reopenSessionAtPath: 文件不存在 ${resolved}`);
+    }
+
+    if (this._session) {
+      const oldSp = this._session?.sessionManager?.getSessionFile?.();
+      if (oldSp) await this._d.getAgent()?._memoryTicker?.notifySessionEnd(oldSp).catch(() => {});
+    }
+    for (const [, entry] of this._sessions) {
+      entry.unsub();
+    }
+    this._sessions.clear();
+    this._session = null;
+
+    let memoryEnabled = true;
+    try {
+      const metaPath = path.join(path.dirname(sessionPath), "session-meta.json");
+      const meta = JSON.parse(fs.readFileSync(metaPath, "utf-8"));
+      const sessKey = path.basename(sessionPath);
+      if (meta[sessKey]?.memoryEnabled === false) memoryEnabled = false;
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        log.warn(`reopenSessionAtPath session-meta: ${err.message}`);
+      }
+    }
+
+    const sessionDir = path.dirname(sessionPath);
+    const sessionMgr = SessionManager.open(sessionPath, sessionDir);
     const cwd = sessionMgr.getCwd?.() || undefined;
     return this.createSession(sessionMgr, cwd, memoryEnabled);
   }
@@ -206,8 +261,21 @@ export class SessionCoordinator {
       const entry = this._sessions.get(sp);
       if (entry) entry.lastTouchedAt = Date.now();
     }
-    const promptOpts = opts?.images?.length ? { images: opts.images } : undefined;
-    await this._session.prompt(text, promptOpts);
+    const sessionModel = this._session.model;
+    const origImages = opts?.images;
+    let images = filterImagesForModelInput(origImages, sessionModel?.input);
+    let effectiveText = text;
+    if ((!effectiveText || !String(effectiveText).trim()) && origImages?.length && !images?.length) {
+      effectiveText = "（所附媒体已省略：当前模型不支持。）";
+    }
+    const promptOpts = images?.length ? { images } : undefined;
+    if (promptOpts?.images?.length) {
+      const mimes = promptOpts.images.map((im) => im.mimeType).join(", ");
+      log.log(
+        `prompt → model: ${promptOpts.images.length} media [${mimes}], textLen=${(effectiveText || "").length}, model.input=${JSON.stringify(sessionModel?.input)}`,
+      );
+    }
+    await this._session.prompt(effectiveText, promptOpts);
     if (sp) {
       const entry = this._sessions.get(sp);
       const agent = entry ? this._d.getAgentById(entry.agentId) : this._d.getAgent();
@@ -289,9 +357,12 @@ export class SessionCoordinator {
   }
 
   async closeAllSessions() {
+    if (this._d.flushBridgeOwnerMemory) {
+      await this._d.flushBridgeOwnerMemory().catch(() => {});
+    }
     for (const [sp, entry] of this._sessions) {
       const agent = this._d.getAgentById(entry.agentId) || this._d.getAgent();
-      agent?._memoryTicker?.notifySessionEnd(sp).catch(() => {});
+      await agent?._memoryTicker?.notifySessionEnd(sp).catch(() => {});
       if (entry.session.isStreaming) {
         try { await entry.session.abort(); } catch {}
       }
@@ -401,7 +472,7 @@ export class SessionCoordinator {
       resourceLoader: this._d.getResourceLoader(),
       allSkills:      skills.allSkills,
       getSkillsForAgent: (ag) => skills.getSkillsForAgent(ag),
-      buildTools:     (cwd, customTools, opts) => this._d.buildTools(cwd, customTools, opts),
+      buildTools:     (cwd, customTools, opts) => this._d.buildTools(cwd, customTools, opts), // async
       resolveModel:   (agentConfig) => {
         let id = agentConfig?.models?.chat;
         // 非 active agent 可能没有配 models.chat（模板默认为空），回退到全局默认模型
@@ -477,29 +548,40 @@ export class SessionCoordinator {
 
       const execCwd = opts.cwd || this._d.getHomeCwd() || process.cwd();
       const models = this._d.getModels();
-      const agentPreferredModel = targetAgent.config?.models?.chat;
-      const modelId = opts.model ? null : agentPreferredModel;
       let resolvedModel = opts.model;
       if (!resolvedModel) {
-        if (modelId) {
-          resolvedModel = models.availableModels.find(m => m.id === modelId);
-        }
-        if (!resolvedModel) {
-          // agent 未配 models.chat 或配置的模型不在可用列表：fallback 到当前默认模型
-          resolvedModel = models.defaultModel;
-        }
-        if (!resolvedModel) {
-          log.error(`[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，也没有可用的默认模型`);
-          throw new Error(t("error.executeIsolatedNoModel", { name: targetAgent.agentName }));
-        }
-        if (modelId && resolvedModel.id !== modelId) {
-          log.log(`[executeIsolated] 模型 "${modelId}" 不可用，fallback → ${resolvedModel.id}`);
+        const preferredId = targetAgent.config?.models?.chat;
+        if (preferredId) {
+          resolvedModel = models.availableModels.find(m => m.id === preferredId);
+          if (!resolvedModel) {
+            const available = models.availableModels.map(m => `${m.provider}/${m.id}`).join(", ");
+            log.error(`[executeIsolated] 找不到模型 "${preferredId}"。availableModels=[${available}]`);
+            throw new Error(t("error.resolveModelNotAvailable", { id: preferredId }));
+          }
+        } else {
+          const activeAgent = this._d.getAgent();
+          if (targetAgent === activeAgent && models.currentModel) {
+            log.log(
+              `[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，使用当前会话模型 ${models.currentModel.id}`,
+            );
+            resolvedModel = models.currentModel;
+          } else if (models.defaultModel) {
+            log.log(
+              `[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，回退到默认模型 ${models.defaultModel.id}`,
+            );
+            resolvedModel = models.defaultModel;
+          } else {
+            log.error(`[executeIsolated] agent "${targetAgent.agentName}" 未指定 models.chat，也没有可用的默认模型`);
+            throw new Error(t("error.executeIsolatedNoModel", { name: targetAgent.agentName }));
+          }
         }
       }
       const execModel = models.resolveExecutionModel(resolvedModel);
       tempSessionMgr = SessionManager.create(execCwd, sessionDir);
-      const { tools: allBuiltinTools, customTools: allCustomTools } = this._d.buildTools(
-        execCwd, targetAgent.tools, { agentDir: targetAgent.agentDir, workspace: this._d.getHomeCwd() }
+      const { tools: allBuiltinTools, customTools: allCustomTools } = await this._d.buildTools(
+        execCwd,
+        targetAgent.tools,
+        { agentDir: targetAgent.agentDir, workspace: this._d.getHomeCwd() },
       );
 
       const patrolAllowed = opts.toolFilter
@@ -534,6 +616,7 @@ export class SessionCoordinator {
         resourceLoader: execResourceLoader,
         tools: actTools,
         customTools: actCustomTools,
+        streamFn: wrapStreamFnForInvokeXml(streamSimple),
       });
 
       let replyText = "";
@@ -566,6 +649,30 @@ export class SessionCoordinator {
       }
 
       const sessionPath = session.sessionManager?.getSessionFile?.() || null;
+
+      // 流未产出 text_delta 时，从 persist 的 session 文件补全最后一条 assistant 文本（供巡检笺 COMPLETED 解析等）
+      if (replyText === "" && sessionPath && opts.persist) {
+        try {
+          const raw = fs.readFileSync(sessionPath, "utf-8");
+          let lastAssistantText = "";
+          for (const line of raw.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const entry = JSON.parse(line);
+              if (entry.type !== "message" || !entry.message) continue;
+              const msg = entry.message;
+              if (msg.role !== "assistant") continue;
+              const content = msg.content;
+              if (Array.isArray(content)) {
+                lastAssistantText = content.filter(b => b.type === "text" && b.text).map(b => b.text).join("");
+              } else if (typeof content === "string") {
+                lastAssistantText = content;
+              }
+            } catch { /* 跳过损坏行 */ }
+          }
+          if (lastAssistantText) replyText = lastAssistantText;
+        } catch {}
+      }
 
       if (!opts.persist && sessionPath) {
         try { fs.unlinkSync(sessionPath); } catch {}

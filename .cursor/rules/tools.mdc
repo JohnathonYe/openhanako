@@ -1,0 +1,57 @@
+---
+description: Agent 工具（custom tools）的新增与注册规范
+globs: lib/tools/**/*.js, core/agent.js, lib/sandbox/index.js
+alwaysApply: false
+---
+
+# 工具（Tools）新增与管理
+
+## 两类工具
+
+- **Built-in**：读/写/编辑/bash/grep/find/ls，由 Pi SDK 提供，在 `lib/sandbox/index.js` 的 `createSandboxedTools()` 中创建并可选 PathGuard/OS 沙盒包装；不要在此文件随意增删 built-in 列表。
+- **Custom**：在 `lib/tools/*.js` 中定义，由 `core/agent.js` 在 Agent init 时创建并纳入 `agent.tools`，经 `engine.buildTools()` 以 `customTools` 形式传给 Pi 的 `createAgentSession`；custom 工具**不会**被 sandbox 包装，需在工具内部自行保证安全。
+
+## 新增一个 Custom 工具
+
+### 1. 在 `lib/tools/` 下新增模块
+
+- 导出**工厂函数** `createXxxTool(opts?)`，返回符合 Pi SDK 的 **ToolDefinition** 对象。
+- 字段：`name`（必填）、`label`（可选）、`description`、`parameters`（`@sinclair/typebox` 的 `Type.*`）、`execute`。
+
+```javascript
+// lib/tools/my-tool.js
+import { Type } from "@sinclair/typebox";
+
+export function createMyTool({ getSomething }) {
+  return {
+    name: "my_tool",
+    label: "我的工具",
+    description: "简要说明何时使用、做什么。",
+    parameters: Type.Object({
+      key: Type.String({ description: "参数说明" }),
+    }),
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      const result = doWork(params.key, getSomething());
+      return {
+        content: [{ type: "text", text: result }],
+        details: { key: params.key },
+      };
+    },
+  };
+}
+```
+
+- `execute` 返回值：`{ content: [{ type: "text", text: string }], details?: any }`。需要路径/文件操作时在工具内部约束，不要依赖 sandbox 包装。
+
+- **调用方式（与所有 custom 工具一致）**：运行时由 Pi SDK 将模型输出解析为 `content` 中的 `tool_use`/`toolCall` 块（含 `name`、`input`/`arguments`），再以 `(toolCallId, params)` 调用 `execute`，`params` 即单个 JSON 对象，与 `parameters` 的 TypeBox 定义一致。若工具参数较多或易与其它工具混淆，可在 `description` 中写一句「调用方式：与其它工具一致，传入单个 JSON 对象，字段见 parameters」，并给出 1～2 个示例（见 `cdp_local_browser`、`single_use_browser`）。
+
+### 2. 在 `core/agent.js` 中注册
+
+- **Import**：文件顶部 `import { createMyTool } from "../lib/tools/my-tool.js";`
+- **实例字段**：构造函数里 `this._myTool = null;`
+- **创建**：在 `init()` 的「创建工具」阶段（约第 7～9 步）调用 `this._myTool = createMyTool({ ... });`，依赖（如 engine、agentDir、config）通过闭包或参数传入。
+- **暴露**：在 getter `get tools()` 的返回数组中加入 `this._myTool`，并保持 `.filter(Boolean)`。
+
+### 3. 可选：隔离执行时的白名单
+
+- 使用 `executeIsolated`（如心跳、委派）时，custom 工具可通过 `opts.toolFilter` 或 `config.desk.patrol_tools` 做白名单过滤；built-in 通过 `opts.builtinFilter` 白名单限制。新增工具若需在巡检/委派中可用，需加入对应白名单配置或默认列表。

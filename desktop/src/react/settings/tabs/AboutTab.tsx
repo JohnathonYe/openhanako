@@ -7,7 +7,8 @@ import iconUrl from '../../../assets/Hanako.png';
 import styles from '../Settings.module.css';
 import type { AutoUpdateState } from '../../types';
 
-const hana = window.hana;
+const hana = (window as any).hana;
+const platform = (window as any).platform;
 
 export function AboutTab() {
   const { settingsConfig } = useSettingsStore();
@@ -15,6 +16,7 @@ export function AboutTab() {
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState<AutoUpdateState | null>(null);
   const isBeta = settingsConfig?.update_channel === 'beta';
+  const [debugWsClient, setDebugWsClient] = useState(false);
 
   // 全权模式 easter egg：点击头像 5 次解锁
   const [devUnlocked, setDevUnlocked] = useState(false);
@@ -41,6 +43,7 @@ export function AboutTab() {
       if (s) setAutoUpdate(s);
     });
     hana?.onAutoUpdateState?.((s: AutoUpdateState) => setAutoUpdate(s));
+    platform?.getDebugWsClient?.().then((on: boolean) => setDebugWsClient(!!on)).catch(() => {});
   }, []);
 
   const handleCheck = useCallback(() => {
@@ -184,6 +187,31 @@ export function AboutTab() {
         </div>
       </section>
 
+      <section className="settings-section about-diag-section">
+        <h2 className="settings-section-title">{t('settings.about.diagTitle')}</h2>
+        <div className="tool-caps-group">
+          <div className="tool-caps-item">
+            <div className="tool-caps-label">
+              <span className="tool-caps-name">{t('settings.about.debugWsLog')}</span>
+              <span className="tool-caps-desc">
+                {t('settings.about.debugWsLogDesc')}
+              </span>
+            </div>
+            <Toggle
+              on={debugWsClient}
+              onChange={async (on) => {
+                setDebugWsClient(on);
+                try {
+                  await platform?.setDebugWsClient?.(on);
+                } catch {
+                  setDebugWsClient(!on);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
       <button
         className={styles['about-license-toggle']}
         onClick={() => setLicenseOpen(!licenseOpen)}
@@ -193,6 +221,17 @@ export function AboutTab() {
         </svg>
         {t('settings.about.licenseToggle')}
       </button>
+
+      <section className="settings-section about-quit-section">
+        <p className="about-quit-desc">{t('settings.about.quitFullyDesc')}</p>
+        <button
+          type="button"
+          className="about-quit-fully-btn"
+          onClick={() => hana?.quitFully?.()}
+        >
+          {t('settings.about.quitFully')}
+        </button>
+      </section>
 
       {licenseOpen && (
         <pre className={styles['about-license-text']}>{LICENSE_TEXT}</pre>

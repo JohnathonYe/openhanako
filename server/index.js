@@ -23,6 +23,7 @@ import { initDebugLog } from "../lib/debug-log.js";
 setMaxListeners(50);
 
 import { loadLocale } from "./i18n.js";
+import { MAX_WS_MESSAGE_BYTES } from "../lib/media-limits.js";
 import chatRoute from "./routes/chat.js";
 import sessionsRoute from "./routes/sessions.js";
 import modelsRoute from "./routes/models.js";
@@ -102,6 +103,8 @@ dlog.header(appVersion, {
   channelsDir: engine.channelsDir,
 });
 
+console.log("[server] 工具调用日志 [tools] 输出到本终端与 ~/.hanako/logs（不会出现在浏览器 DevTools）");
+
 // ── 初始化 Hub（调度中枢，包装 engine） ──
 const hub = new Hub({ engine });
 
@@ -143,8 +146,10 @@ app.addHook("onRequest", (req, reply, done) => {
   done();
 });
 
-// WebSocket 支持
-await app.register(websocket);
+// WebSocket 支持（提高单帧上限，避免多图/视频 Base64 整包被 ws 静默丢弃）
+await app.register(websocket, {
+  options: { maxPayload: MAX_WS_MESSAGE_BYTES },
+});
 
 // ── 阻塞式确认存储 ──
 const confirmStore = new ConfirmStore();
@@ -208,7 +213,7 @@ app.post("/api/log", async (req) => {
   return { ok: true };
 });
 
-// Plan Mode（只读探索模式）
+// 操作电脑（ON = 全部工具解锁，OFF = 只读 + 无浏览器控制）
 app.get("/api/plan-mode", async () => ({ enabled: engine.planMode }));
 app.post("/api/plan-mode", async (req) => {
   const { enabled } = req.body || {};

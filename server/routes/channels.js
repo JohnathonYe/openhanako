@@ -14,7 +14,7 @@
 
 import fs from "fs";
 import path from "path";
-import { debugLog } from "../../lib/debug-log.js";
+import { debugLog, previewForLog } from "../../lib/debug-log.js";
 import {
   parseChannel,
   createChannel,
@@ -24,6 +24,10 @@ import {
   addBookmarkEntry,
   getChannelMeta,
 } from "../../lib/channels/channel-store.js";
+import {
+  resolveChannelDocFile,
+  channelBodyWithOptionalDoc,
+} from "../../lib/channels/channel-doc.js";
 
 export default async function channelsRoute(app, { engine, hub }) {
 
@@ -148,6 +152,28 @@ export default async function channelsRoute(app, { engine, hub }) {
     }
   });
 
+  // ── 获取频道内另存的长文 Markdown ──
+  app.get("/api/channels/:name/docs/:docId", async (req, reply) => {
+    try {
+      const { name, docId } = req.params;
+      const channelsDir = engine.channelsDir;
+      if (!channelsDir) {
+        reply.code(503);
+        return { error: "channels not configured" };
+      }
+      const filePath = resolveChannelDocFile(channelsDir, name, docId);
+      if (!filePath || !fs.existsSync(filePath)) {
+        reply.code(404);
+        return { error: "Document not found" };
+      }
+      const content = fs.readFileSync(filePath, "utf-8");
+      return { content, docId };
+    } catch (err) {
+      reply.code(500);
+      return { error: err.message };
+    }
+  });
+
   // ── 获取频道消息 ──
   app.get("/api/channels/:name", async (req, reply) => {
     try {
@@ -197,12 +223,26 @@ export default async function channelsRoute(app, { engine, hub }) {
       }
 
       const senderName = engine.userName || "user";
-      const result = appendMessage(filePath, senderName, body);
+      const channelsDir = engine.channelsDir;
+      const { body: storedBody } = channelsDir
+        ? channelBodyWithOptionalDoc(channelsDir, name, senderName, body)
+        : { body: String(body).trim() };
+      const result = appendMessage(filePath, senderName, storedBody);
 
-      debugLog()?.log("api", `POST /channels/${name}/messages`);
+      const rawLen = String(body).length;
+      const storedLen = String(storedBody).length;
+      const rawPreview = previewForLog(body, 500);
 
-      // 提取 @ 提及
-      const atMatches = body.match(/@(\S+)/g) || [];
+      debugLog()?.log(
+        "api",
+        `POST /channels/${name}/messages sender=${senderName} ts=${result.timestamp} rawLen=${rawLen} storedLen=${storedLen} preview=${rawPreview}`,
+      );
+
+      // 提取 @ 提及（用原文，长文里的 @ 也要触发 triage）
+      const atMatches = String(body).match(/@(\S+)/g) || [];
+      if (atMatches.length) {
+        debugLog()?.log("api", `POST /channels/${name}/messages @tokens=${atMatches.join(",")}`);
+      }
       const mentionedAgents = [];
       if (atMatches.length > 0) {
         const meta = getChannelMeta(filePath);
@@ -219,11 +259,17 @@ export default async function channelsRoute(app, { engine, hub }) {
         }
       }
 
-      hub.triggerChannelTriage(name, { mentionedAgents })?.catch(err =>
-        console.error(`[channel] 触发立即 triage 失败: ${err.message}`)
+      debugLog()?.log(
+        "api",
+        `POST /channels/${name}/messages → triggerChannelTriage mentioned=[${mentionedAgents.join(",") || "all"}] (resolved ${mentionedAgents.length}/${atMatches.length} @ tokens)`,
       );
 
-      return { ok: true, timestamp: result.timestamp };
+      hub.triggerChannelTriage(name, { mentionedAgents })?.catch(err => {
+        console.error(`[channel] 触发立即 triage 失败: ${err.message}`);
+        debugLog()?.error("api", `triggerChannelTriage failed #${name}: ${err.message}`);
+      });
+
+      return { ok: true, timestamp: result.timestamp, body: storedBody };
     } catch (err) {
       reply.code(500);
       return { error: err.message };

@@ -209,10 +209,11 @@ export class AgentManager {
     if (userName) {
       config = config.replace(/user:\s*\n\s+name:\s*""/, `user:\n  name: "${userName}"`);
     }
-    // 继承主 agent 的模型配置
-    const primaryChat = currentAgent?.config?.models?.chat || this._d.getModels().defaultModel?.id || "";
+    // 优先继承主 agent 的 chat 模型，否则回落全局默认，避免 models.chat 为空时心跳/巡检失败
+    const primaryChat =
+      currentAgent?.config?.models?.chat || this._d.getModels()?.defaultModel?.id || "";
     if (primaryChat) {
-      config = config.replace(/chat: ""/, `chat: "${primaryChat}"`);
+      config = config.replace(/^(\s+chat:\s*)""/m, `$1"${primaryChat}"`);
     }
     fs.writeFileSync(path.join(agentDir, "config.yaml"), config, "utf-8");
 
@@ -299,6 +300,8 @@ export class AgentManager {
       // 未配 models.chat 的 agent 继承当前 defaultModel
       const effectiveModel = preferredId || models.defaultModel?.id || "inherited";
       log.log(`agent switched to ${this.agent.agentName} (${agentId}), model=${effectiveModel}`);
+      // 与 pauseForAgentSwitch 成对：切换 session / createSessionForAgent 只走 switchAgentOnly 时也必须恢复心跳
+      hub?.resumeAfterAgentSwitch();
     } catch (err) {
       this._activeAgentId = prevAgentId;
       try { this._d.getHub()?.resumeAfterAgentSwitch(); } catch {}
@@ -310,12 +313,20 @@ export class AgentManager {
 
   async switchAgent(agentId) {
     await this.switchAgentOnly(agentId);
-    const hub = this._d.getHub();
-    hub?.resumeAfterAgentSwitch();
     this._d.getSkills().syncAgentSkills(this.agent);
     this._d.getPrefs().savePrimaryAgent(agentId);
     await this._d.getSessionCoordinator().createSession();
     log.log(`已切换到助手: ${this.agent.agentName} (${agentId})`);
+  }
+
+  /**
+   * 主聊天 handoff：切换主助手与技能/偏好，但不新建会话（保留当前 JSONL，模型上下文连续）。
+   */
+  async switchAgentKeepSession(agentId) {
+    await this.switchAgentOnly(agentId);
+    this._d.getSkills().syncAgentSkills(this.agent);
+    this._d.getPrefs().savePrimaryAgent(agentId);
+    log.log(`已切换主助手（保留会话）: ${this.agent.agentName} (${agentId})`);
   }
 
   async createSessionForAgent(agentId, cwd, memoryEnabled = true) {
@@ -415,12 +426,14 @@ export class AgentManager {
   }
 
   _createAgentInstance(agentDir, getOwnerIds) {
+    const hanakoHome = path.dirname(this._d.agentsDir);
     const ag = new Agent({
       agentDir,
       productDir: this._d.productDir,
       userDir: this._d.userDir,
       channelsDir: this._d.channelsDir,
       agentsDir: this._d.agentsDir,
+      hanakoHome,
       searchConfigResolver: () => this._d.getSearchConfig(),
     });
     ag._getOwnerIds = getOwnerIds;

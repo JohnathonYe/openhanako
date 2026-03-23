@@ -56,6 +56,7 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
         tokenMasked: bridge.wechat?.botToken ? mask(bridge.wechat.botToken) : "",
       },
       readOnly: !!bridge.readOnly,
+      ownerAgentId: bridge.ownerAgentId || "",
       knownUsers: collectKnownUsers(engine.getBridgeIndex()),
       owner: bridge.owner || {},
     };
@@ -116,14 +117,33 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
     return { ok: true };
   });
 
-  /** 更新 bridge 全局设置（readOnly 等） */
-  app.post("/api/bridge/settings", async (req) => {
-    const { readOnly } = req.body || {};
+  /** 更新 bridge 全局设置（readOnly、ownerAgentId 等） */
+  app.post("/api/bridge/settings", async (req, reply) => {
+    const { readOnly, ownerAgentId } = req.body || {};
     const prefs = engine.getPreferences();
     if (!prefs.bridge) prefs.bridge = {};
+
     if (typeof readOnly === "boolean") prefs.bridge.readOnly = readOnly;
+
+    if ("ownerAgentId" in (req.body || {})) {
+      const raw = ownerAgentId;
+      const id = raw === null || raw === undefined || raw === "" ? "" : String(raw).trim();
+      if (id) {
+        if (!engine.getAgent(id)) {
+          reply.code(400);
+          return { ok: false, error: "unknown agent" };
+        }
+        prefs.bridge.ownerAgentId = id;
+      } else {
+        delete prefs.bridge.ownerAgentId;
+      }
+    }
+
     engine.savePreferences(prefs);
-    debugLog()?.log("api", `POST /api/bridge/settings readOnly=${prefs.bridge.readOnly}`);
+    debugLog()?.log(
+      "api",
+      `POST /api/bridge/settings readOnly=${prefs.bridge.readOnly} ownerAgentId=${prefs.bridge.ownerAgentId || "[default]"}`,
+    );
     return { ok: true };
   });
 
@@ -158,7 +178,7 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
   app.get("/api/bridge/sessions", async (req) => {
     const platform = req.query?.platform; // optional filter
     const index = engine.getBridgeIndex();
-    const bridgeDir = path.join(engine.agent.sessionDir, "bridge");
+    const bridgeDir = path.join(engine.getBridgeAgent().sessionDir, "bridge");
     const prefs = engine.getPreferences();
     const owner = prefs.bridge?.owner || {};
     const sessions = [];
@@ -208,7 +228,7 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
     const file = typeof raw === "string" ? raw : raw?.file;
     if (!file) return { error: "session not found", messages: [] };
 
-    const bridgeDir = path.join(engine.agent.sessionDir, "bridge");
+    const bridgeDir = path.join(engine.getBridgeAgent().sessionDir, "bridge");
     const fp = path.resolve(bridgeDir, file);
 
     // 防止 path traversal

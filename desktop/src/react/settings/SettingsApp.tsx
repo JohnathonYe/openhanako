@@ -13,6 +13,7 @@ import { MeTab } from './tabs/MeTab';
 import { InterfaceTab } from './tabs/InterfaceTab';
 import { WorkTab } from './tabs/WorkTab';
 import { SkillsTab } from './tabs/SkillsTab';
+import { ToolsTab } from './tabs/ToolsTab';
 import { BridgeTab } from './tabs/BridgeTab';
 import { ProvidersTab } from './tabs/ProvidersTab';
 import { AboutTab } from './tabs/AboutTab';
@@ -35,6 +36,7 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   interface: InterfaceTab,
   work: WorkTab,
   skills: SkillsTab,
+  tools: ToolsTab,
   bridge: BridgeTab,
   providers: ProvidersTab,
   about: AboutTab,

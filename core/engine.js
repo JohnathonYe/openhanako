@@ -34,13 +34,14 @@ const WELL_KNOWN_SKILL_PATHS = [
 
 const allBuiltInTools = [...codingTools, grepTool, findTool, lsTool];
 
+import { syncSkills } from "./first-run.js";
 import { PreferencesManager } from "./preferences-manager.js";
 import { ModelManager } from "./model-manager.js";
 import { SkillManager } from "./skill-manager.js";
 import { BridgeSessionManager } from "./bridge-session-manager.js";
 import { AgentManager } from "./agent-manager.js";
 import { SessionCoordinator } from "./session-coordinator.js";
-import { ConfigCoordinator, SHARED_MODEL_KEYS } from "./config-coordinator.js";
+import { ConfigCoordinator, PLAN_MODE_ONLY_SKILLS, SHARED_MODEL_KEYS } from "./config-coordinator.js";
 import { ChannelManager } from "./channel-manager.js";
 import {
   summarizeTitle as _summarizeTitle,
@@ -51,6 +52,9 @@ import {
 import { debugLog } from "../lib/debug-log.js";
 import { createSandboxedTools } from "../lib/sandbox/index.js";
 import { t } from "../server/i18n.js";
+import { getToolRegistry } from "../lib/tools/registry.js";
+import { loadUserScriptTools } from "../lib/tools/user-script-loader.js";
+import { wrapToolWithDebugLog } from "../lib/tools/tool-debug-log.js";
 
 export class HanaEngine {
   /**
@@ -121,6 +125,8 @@ export class HanaEngine {
       getActivityStore: (id) => this.getActivityStore(id),
       getAgentById: (id) => this._agentMgr.getAgent(id),
       listAgents: () => this.listAgents(),
+      syncPlanModeToSession: () => this.setPlanMode(this.planMode),
+      flushBridgeOwnerMemory: () => this.flushBridgeOwnerMemory(),
     });
 
     // ── Config Coordinator ──
@@ -142,12 +148,14 @@ export class HanaEngine {
     // ── Bridge Session Manager ──
     this._bridge = new BridgeSessionManager({
       getAgent: () => this.agent,
-      getAgentById: (id) => this._agentManager.getAgent(id),
+      getAgentById: (id) => this._agentMgr.getAgent(id),
+      getSkillsForAgent: (ag) => this._getSkillsForAgent(ag),
       getModelManager: () => this._models,
       getResourceLoader: () => this._resourceLoader,
       getPreferences: () => this._readPreferences(),
-      buildTools: (cwd, customTools, opts) => this.buildTools(cwd, customTools, opts),
+      buildTools: (cwd, ct, opts) => this.buildTools(cwd, ct, opts),
       getHomeCwd: () => this.homeCwd,
+      applyPendingHandoff: () => this.applyPendingServiceHandoffIfAny(),
     });
 
     // Pi SDK resources（init 时填充）
@@ -163,6 +171,13 @@ export class HanaEngine {
 
     // 设置起始 agentId
     this._agentMgr.activeAgentId = startId;
+
+    /** handoff_service 工具在主聊天中排队，于本轮 turn_end 后切换 agent 并代为 prompt */
+    this._pendingServiceHandoff = null;
+    /** @type {((msg: object) => void) | null} WebSocket 广播，由 chat 路由注入 */
+    this._agentSwitchBroadcast = null;
+    /** handoff 触发的续写回合不经由 WS prompt，需单独广播 status 以同步 isStreaming */
+    this._handoffStreamingBroadcast = null;
   }
 
   // ════════════════════════════
@@ -186,6 +201,134 @@ export class HanaEngine {
   invalidateAgentListCache() { this._agentMgr.invalidateAgentListCache(); }
   async createAgent(opts) { return this._agentMgr.createAgent(opts); }
   async switchAgent(agentId) { return this._agentMgr.switchAgent(agentId); }
+  /** handoff：切主助手但保留当前 JSONL（同线程上下文） */
+  async switchAgentKeepSession(agentId) { return this._agentMgr.switchAgentKeepSession(agentId); }
+
+  /**
+   * 主聊天专用：排队在下一轮 turn 结束后切换服务对象并发送转交任务
+   * @param {{ agentId: string, task: string, fromAgentId?: string, fromAgentName?: string }|null} payload
+   */
+  setPendingServiceHandoff(payload) {
+    if (!payload?.agentId || typeof payload.task !== "string" || !String(payload.task).trim()) {
+      this._pendingServiceHandoff = null;
+      return;
+    }
+    this._pendingServiceHandoff = {
+      agentId: payload.agentId,
+      task: String(payload.task).trim(),
+      fromAgentId: payload.fromAgentId || null,
+      fromAgentName: payload.fromAgentName || null,
+    };
+  }
+
+  /** 由 server/routes/chat 注册，用于 handoff 后同步桌面当前助手与会话 */
+  setAgentSwitchBroadcast(fn) {
+    this._agentSwitchBroadcast = typeof fn === "function" ? fn : null;
+  }
+
+  /** @param {(streaming: boolean) => void} [fn] */
+  setHandoffStreamingBroadcast(fn) {
+    this._handoffStreamingBroadcast = typeof fn === "function" ? fn : null;
+  }
+
+  /** 在 WebSocket turn_end 或 Bridge owner 轮结束后调用：切换 agent 并向新会话发送转交任务 */
+  async applyPendingServiceHandoffIfAny() {
+    const p = this._pendingServiceHandoff;
+    if (!p) return;
+    this._pendingServiceHandoff = null;
+    try {
+      const keepPath = this.currentSessionPath;
+      if (keepPath) {
+        await this.switchAgentKeepSession(p.agentId);
+        await this.reopenSessionAtPath(keepPath);
+      } else {
+        await this.switchAgent(p.agentId);
+        if (!this.session) await this.createSession();
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+
+      const toYuan = this.agent?.config?.agent?.yuan || "hanako";
+      try {
+        this._agentSwitchBroadcast?.({
+          type: "agent_switched",
+          agentId: this.currentAgentId,
+          agentName: this.agentName,
+          yuan: toYuan,
+          sessionPath: this.currentSessionPath,
+          handoff: {
+            fromAgentId: p.fromAgentId,
+            fromAgentName: p.fromAgentName || p.fromAgentId || "助手",
+            toAgentId: p.agentId,
+            toAgentName: this.agentName,
+            task: p.task.trim(),
+          },
+        });
+      } catch {}
+
+      const from = p.fromAgentName || p.fromAgentId || "另一位助手";
+      const task = p.task.trim();
+      const sess = this.session;
+      if (!sess) {
+        throw new Error("handoff: 切换后无活跃 session");
+      }
+
+      // 两段 custom 消息：
+      // 1) 可见转交说明（不触发回合）— 持久化到 JSONL 供历史回放
+      // 2) 不可见执行指令（触发回合）— 新助手以独立气泡回复
+      if (typeof sess.sendCustomMessage === "function") {
+        const handoffText =
+          `助手「${from}」向你转交：${task}\n\n` +
+          `请按你的身份直接对用户回应；不要复述或模仿用户口吻。`;
+
+        await sess.sendCustomMessage(
+          {
+            customType: "hana_handoff",
+            content: handoffText,
+            display: true,
+            details: {
+              fromAgentId: p.fromAgentId,
+              fromAgentName: p.fromAgentName,
+              toAgentId: p.agentId,
+              toAgentName: this.agentName,
+              task,
+            },
+          },
+          { triggerTurn: false },
+        );
+
+        this._handoffStreamingBroadcast?.(true);
+        try {
+          await sess.sendCustomMessage(
+            {
+              customType: "hana_handoff_instruction",
+              content: "请按转交事项直接对用户回应；不要复述或模仿用户口吻。",
+              display: false,
+              details: {
+                fromAgentId: p.fromAgentId,
+                fromAgentName: p.fromAgentName,
+                toAgentId: p.agentId,
+                task,
+              },
+            },
+            { triggerTurn: true },
+          );
+        } finally {
+          this._handoffStreamingBroadcast?.(false);
+        }
+      } else {
+        this._handoffStreamingBroadcast?.(true);
+        try {
+          await this.prompt(
+            `【助手「${from}」转交】\n事项：${task}\n\n请按你的身份完成，勿用用户口吻复述。`,
+          );
+        } finally {
+          this._handoffStreamingBroadcast?.(false);
+        }
+      }
+    } catch (err) {
+      console.error(`[engine] applyPendingServiceHandoffIfAny: ${err.message}`);
+    }
+  }
   async deleteAgent(agentId) { return this._agentMgr.deleteAgent(agentId); }
   setPrimaryAgent(agentId) { return this._agentMgr.setPrimaryAgent(agentId); }
   agentIdFromSessionPath(p) { return this._agentMgr.agentIdFromSessionPath(p); }
@@ -213,9 +356,33 @@ export class HanaEngine {
   get deskCwd() { return this._sessionCoord.session?.sessionManager?.getCwd?.() || this.homeCwd || null; }
 
   async createSession(mgr, cwd, mem) { return this._sessionCoord.createSession(mgr, cwd, mem); }
+  async reopenSessionAtPath(sessionPath) { return this._sessionCoord.reopenSessionAtPath(sessionPath); }
   async switchSession(p) { return this._sessionCoord.switchSession(p); }
   /** @deprecated Phase 2: 使用 promptSession(path, text, opts) */
   async prompt(text, opts) { return this._sessionCoord.prompt(text, opts); }
+
+  /**
+   * Bridge（外部平台）实际使用的助手：preferences.bridge.ownerAgentId 指定，否则为当前主界面助手。
+   */
+  getBridgeAgent() {
+    const id = this._readPreferences()?.bridge?.ownerAgentId;
+    if (id && typeof id === "string" && id.trim()) {
+      const a = this._agentMgr.getAgent(id.trim());
+      if (a) return a;
+    }
+    return this.agent;
+  }
+
+  /** 当前助手 + Bridge 专用助手：收尾 Bridge 本人会话 JSONL（避免切主界面后漏刷 Bridge 助手） */
+  async flushBridgeOwnerMemory() {
+    const ids = new Set([this.currentAgentId]);
+    const bid = this._readPreferences()?.bridge?.ownerAgentId;
+    if (bid && typeof bid === "string" && bid.trim()) ids.add(bid.trim());
+    for (const id of ids) {
+      await this._agentMgr.getAgent(id)?.flushBridgeOwnerMemory?.();
+    }
+  }
+
   /** @deprecated Phase 2: 使用 abortSession(path) */
   async abort() { return this._sessionCoord.abort(); }
   /** @deprecated Phase 2: 使用 steerSession(path, text) */
@@ -297,6 +464,10 @@ export class HanaEngine {
   getPreferences() { return this._readPreferences(); }
   savePreferences(p) { return this._writePreferences(p); }
 
+  getToolsDisabled() { return this._prefs.getToolsDisabled(); }
+  setToolsDisabled(disabled) { return this._prefs.setToolsDisabled(disabled); }
+  getToolRegistry() { return getToolRegistry(this.hanakoHome); }
+
   // ════════════════════════════
   //  Channel 代理（→ ChannelManager）
   // ════════════════════════════
@@ -313,6 +484,19 @@ export class HanaEngine {
   async executeExternalMessage(p, sk, m, o) { return this._bridge.executeExternalMessage(p, sk, m, o); }
   injectBridgeMessage(sk, t) { return this._bridge.injectMessage(sk, t); }
 
+  /**
+   * 向已对接社交平台上绑定的本人发送一条 IM（由 BridgeManager 校验 owner 与连接状态）。
+   * @param {string} platform - telegram | feishu | qq
+   * @param {string} [userId] - 省略则从 preferences.bridge.owner[platform] 使用；传入则须与配置一致
+   * @param {string} text
+   * @returns {Promise<{ ok: true, sent: true, platform: string, chatId: string, sessionKey: string } | { ok: false, reason?: string, error?: string }>}
+   */
+  async sendBridgeOwnerIm(platform, userId, text) {
+    const bm = this._hub?.bridgeManager;
+    if (!bm?.sendToOwner) return { ok: false, reason: "bridge_unavailable" };
+    return bm.sendToOwner(platform, userId, text);
+  }
+
   // ════════════════════════════
   //  Skills（→ SkillManager）
   // ════════════════════════════
@@ -323,7 +507,13 @@ export class HanaEngine {
     const ag = agentId ? this._agentMgr.getAgent(agentId) : this.agent;
     return this._skills.getAllSkills(ag || this.agent);
   }
-  _getSkillsForAgent(ag) { return this._skills.getSkillsForAgent(ag); }
+  _getSkillsForAgent(ag) {
+    const result = this._skills.getSkillsForAgent(ag);
+    if (!this._configCoord.planMode && result.skills?.length) {
+      result.skills = result.skills.filter(s => !PLAN_MODE_ONLY_SKILLS.includes(s.name));
+    }
+    return result;
+  }
   get skillsDir() { return this._skills.skillsDir; }
   get userSkillsDir() { return this._skills.skillsDir; }
   get learnedSkillsDir() { return path.join(this.agent.agentDir, "learned-skills"); }
@@ -331,6 +521,11 @@ export class HanaEngine {
   get authJsonPath() { return this._models.authJsonPath; }
 
   async reloadSkills() {
+    // 与 init 一致：先从 skills2set 覆盖同步到 skillsDir，再 reload，避免复用 server 或仅点「重载」时仍用旧内容
+    const skillsDir = this._skills.skillsDir;
+    const skillsSrc = path.join(this.productDir, "..", "skills2set");
+    if (fs.existsSync(skillsSrc)) syncSkills(skillsSrc, skillsDir);
+
     await this._skills.reload(this._resourceLoader, this._agentMgr.agents);
     this._resourceLoader.getSystemPrompt = () => this.agent.systemPrompt;
     this._resourceLoader.getSkills = () => this._getSkillsForAgent(this.agent);
@@ -437,6 +632,9 @@ export class HanaEngine {
     const t_rl = Date.now();
     const skillsDir = path.join(this.hanakoHome, "skills");
     fs.mkdirSync(skillsDir, { recursive: true });
+    // 每次 init 从项目 skills2set 覆盖同步，保证重启后看到最新内置技能
+    const skillsSrc = path.join(this.productDir, "..", "skills2set");
+    if (fs.existsSync(skillsSrc)) syncSkills(skillsSrc, skillsDir);
 
     // 解析外部兼容技能路径
     const homeDir = os.homedir();
@@ -519,6 +717,9 @@ export class HanaEngine {
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     log(`✿ 沙盒${sandboxEnabled ? "已启用" : "已关闭"}`);
 
+    // 9. 「操作电脑」每期进程启动默认开启（若已有 session 则同步工具列表并广播）
+    this.setPlanMode(true);
+
     const totalTime = ((Date.now() - startupTimer) / 1000).toFixed(1);
     log(`✿ 初始化完成（${totalTime}s）`);
   }
@@ -533,19 +734,29 @@ export class HanaEngine {
   //  工具构建
   // ════════════════════════════
 
-  buildTools(cwd, customTools, opts = {}) {
-    const ct = customTools || this.agent.tools;
+  async buildTools(cwd, customTools, opts = {}) {
+    const disabledSet = new Set(this.getToolsDisabled());
+    const baseCt = customTools || this.agent.tools;
+    const userTools = await loadUserScriptTools(this.hanakoHome);
+    const mergedCt = Array.isArray(baseCt) ? [...baseCt, ...userTools] : [...userTools];
+    const ct = mergedCt.filter((t) => t && !disabledSet.has(t.name));
+
     const effectiveAgentDir = opts.agentDir || this.agent.agentDir;
     const effectiveWorkspace = opts.workspace !== undefined ? opts.workspace : this.homeCwd;
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     const effectiveMode = opts.mode || (sandboxEnabled ? "standard" : "full-access");
 
-    return createSandboxedTools(cwd, ct, {
+    const result = createSandboxedTools(cwd, ct, {
       agentDir: effectiveAgentDir,
       workspace: effectiveWorkspace,
       hanakoHome: this.hanakoHome,
       mode: effectiveMode,
     });
+    result.tools = result.tools
+      .filter((t) => !disabledSet.has(t.name))
+      .map(wrapToolWithDebugLog);
+    result.customTools = (result.customTools || []).map(wrapToolWithDebugLog);
+    return result;
   }
 
   // ════════════════════════════

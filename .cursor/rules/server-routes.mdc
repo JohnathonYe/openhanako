@@ -1,0 +1,47 @@
+---
+description: Fastify 服务端路由的注册方式与错误处理约定
+globs: server/**/*.js, server/routes/**/*.js
+alwaysApply: false
+---
+
+# Server 路由规范
+
+## 路由注册
+
+- 路由模块 **export default** 一个 `async function(app, { engine })`，在 `server/index.js` 中 `import xxxRoute from "./routes/xxx.js"` 后调用 `await xxxRoute(app, { engine })`
+- API 路径前缀 `/api/`（如 `/api/agents`、`/api/sessions`）
+
+## 请求处理与错误处理
+
+- 使用 `try/catch`，出错时设置 `reply.code(4xx|5xx)` 并返回 `{ error: err.message }`
+- 业务校验（如 id 非法）返回 400；资源已存在等冲突返回 409；其余服务端错误 500
+
+```javascript
+app.get("/api/agents", async (req, reply) => {
+  try {
+    return { agents: engine.listAgents() };
+  } catch (err) {
+    reply.code(500);
+    return { error: err.message };
+  }
+});
+
+app.post("/api/agents", async (req, reply) => {
+  try {
+    const { name, id, yuan } = req.body || {};
+    if (!name?.trim()) {
+      reply.code(400);
+      return { error: "name is required" };
+    }
+    const result = await engine.createAgent({ name, id, yuan });
+    return { ok: true, ...result };
+  } catch (err) {
+    reply.code(err.message.includes("已存在") ? 409 : 500);
+    return { error: err.message };
+  }
+});
+```
+
+## 安全与校验
+
+- 对来自 URL 或 body 的 id 做校验：禁止 `..`、`/`、`\`，可使用项目内已有的 `validateId(id)` 模式；路径拼接使用 `path.join`，避免目录穿越

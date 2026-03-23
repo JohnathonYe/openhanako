@@ -16,12 +16,47 @@
 import fs from "fs";
 import path from "path";
 import { createChannelTicker } from "../lib/channels/channel-ticker.js";
-import { appendMessage, formatMessagesForLLM } from "../lib/channels/channel-store.js";
+import { appendMessage, formatMessagesForLLM, getRecentMessages } from "../lib/channels/channel-store.js";
+import { channelBodyWithOptionalDoc } from "../lib/channels/channel-doc.js";
 import { loadConfig } from "../lib/memory/config-loader.js";
 import { callProviderText } from "../lib/llm/provider-client.js";
 import { runAgentSession } from "./agent-executor.js";
-import { debugLog } from "../lib/debug-log.js";
+import { debugLog, previewForLog } from "../lib/debug-log.js";
 import { getLocale } from "../server/i18n.js";
+
+/** 本地调试：跳过 triage 的 YES/NO 与 [NO_REPLY] 收口，尽量保证有一条可见回复。见项目概览「调试环境变量」。 */
+function isChannelForceReplyDebug() {
+  return process.env.HANA_DEBUG_CHANNEL_FORCE_REPLY === "1";
+}
+
+/** 未 @ 时若模型只输出敷衍短句，视为未发言（不落盘） */
+function isTrivialChannelFiller(text) {
+  const t = String(text || "").trim().replace(/\s+/g, "");
+  if (t.length === 0 || t.length > 24) return false;
+  if (/[?？]/.test(t)) return false;
+  // 常见无信息应答（含重复「嗯」）
+  if (/^(嗯{1,8}|嗯嗯+|好的|收到|好哒|好勒|在的|在呢|来啦|来了|okk?|ok)$/i.test(t)) return true;
+  if (/^(嗯[,，]?){1,4}(好|的|嗯)?$/i.test(t)) return true;
+  return false;
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[\\^$*+?.()|[\]{}]/g, "\\$&");
+}
+
+function parseChannelTimestamp(ts) {
+  if (!ts) return null;
+  const m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const minute = Number(m[5]);
+  const second = Number(m[6] || "0");
+  const d = new Date(year, month, day, hour, minute, second);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 export class ChannelRouter {
   /**
@@ -29,6 +64,7 @@ export class ChannelRouter {
    * @param {import('./index.js').Hub} opts.hub
    */
   static _AGENT_ORDER_TTL = 30_000; // 30 秒
+  static _SELF_REPLY_COOLDOWN_MS = 90_000;
 
   constructor({ hub }) {
     this._hub = hub;
@@ -43,7 +79,10 @@ export class ChannelRouter {
 
   start() {
     const engine = this._engine;
-    if (!engine.channelsDir) return;
+    if (!engine.channelsDir) {
+      debugLog()?.warn("channel", "ChannelRouter.start() skipped: engine.channelsDir missing");
+      return;
+    }
 
     this._ticker = createChannelTicker({
       channelsDir: engine.channelsDir,
@@ -58,6 +97,7 @@ export class ChannelRouter {
       },
     });
     this._ticker.start();
+    debugLog()?.log("channel", `ChannelRouter ticker started (${engine.channelsDir})`);
   }
 
   async stop() {
@@ -77,7 +117,16 @@ export class ChannelRouter {
   }
 
   triggerImmediate(channelName, opts) {
-    return this._ticker?.triggerImmediate(channelName, opts);
+    if (!this._ticker) {
+      const reason = !this._engine.channelsDir
+        ? "no channelsDir"
+        : "ticker not running (channels disabled or start failed)";
+      debugLog()?.warn("channel", `triggerImmediate skipped #${channelName}: ${reason}`);
+      console.warn(`[channel] triage 未执行: ${reason}`);
+      return undefined;
+    }
+    debugLog()?.log("channel", `triggerImmediate #${channelName} ${JSON.stringify(opts ?? {})}`);
+    return this._ticker.triggerImmediate(channelName, opts);
   }
 
   /**
@@ -117,119 +166,181 @@ export class ChannelRouter {
     }
   }
 
-  // ──────────── Triage + Reply ────────────
+  _getRecentChannelMessages(channelName, count = 30) {
+    try {
+      const channelFile = path.join(this._engine.channelsDir, `${channelName}.md`);
+      return getRecentMessages(channelFile, count);
+    } catch {
+      return [];
+    }
+  }
+
+  _isSelfSender(sender, agentId, agentName) {
+    if (!sender) return false;
+    return sender === agentId || sender === agentName;
+  }
+
+  _extractBody(msg) {
+    return String(msg?.body ?? msg?.text ?? "").trim();
+  }
 
   /**
-   * 频道检查回调：triage → 两轮 Agent Session → 写入回复
-   * 从 engine._executeChannelCheck 搬入
+   * 定时 cycle：bookmark 之后若没有用户新消息、也未 @ 本 agent，则视为无待办，不跑模型。
    */
-  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, { signal } = {}) {
+  _shouldSkipScheduledCycle({ unreadSinceBookmark, agentId, agentName, ownerName }) {
+    if (!Array.isArray(unreadSinceBookmark) || unreadSinceBookmark.length === 0) return true;
+    const owner = ownerName || "user";
+    const atSelf = new RegExp(`@(?:${escapeRegExp(agentId)}|${escapeRegExp(agentName)})\\b`, "i");
+    for (const m of unreadSinceBookmark) {
+      const sender = m?.sender;
+      const body = this._extractBody(m);
+      if (sender === owner) return false;
+      if (atSelf.test(body)) return false;
+    }
+    return true;
+  }
+
+  _shouldSuppressRapidFollowup({ recentMessages, agentId, agentName, isMentioned, asksEachMember }) {
+    if (!Array.isArray(recentMessages) || recentMessages.length === 0) return false;
+    if (isMentioned || asksEachMember) return false;
+
+    let lastSelfIdx = -1;
+    for (let i = recentMessages.length - 1; i >= 0; i--) {
+      if (this._isSelfSender(recentMessages[i]?.sender, agentId, agentName)) {
+        lastSelfIdx = i;
+        break;
+      }
+    }
+    if (lastSelfIdx < 0) return false;
+
+    const lastSelf = recentMessages[lastSelfIdx];
+    const lastSelfTime = parseChannelTimestamp(lastSelf?.timestamp);
+    if (!lastSelfTime) return false;
+    if ((Date.now() - lastSelfTime.getTime()) > ChannelRouter._SELF_REPLY_COOLDOWN_MS) return false;
+
+    const followups = recentMessages.slice(lastSelfIdx + 1)
+      .filter(m => !this._isSelfSender(m?.sender, agentId, agentName));
+    if (followups.length === 0) return false;
+
+    const followupText = followups.map(m => this._extractBody(m)).join("\n");
+    if (new RegExp(`@(?:${agentId}|${agentName})\\b`, "i").test(followupText)) return false;
+    if (/[?？]/.test(followupText)) return false;
+
+    return true;
+  }
+
+  _getAgentProfile(agentId) {
     const engine = this._engine;
-    const msgText = formatMessagesForLLM(newMessages);
-
-    // ── 读 agent 完整上下文 ──
-    const readFile = (p) => { try { return fs.readFileSync(p, "utf-8"); } catch { return ""; } };
     const agentDir = path.join(engine.agentsDir, agentId);
-
-    // 复用 Agent 实例的 personality（identity + yuan + ishiki 已在内存中组装）
     const agentInstance = engine.agents?.get(agentId);
     const cfg = agentInstance?.config || loadConfig(path.join(agentDir, "config.yaml"));
-    const agentName = cfg.agent?.name || agentId;
+    return {
+      agentName: cfg?.agent?.name || agentId,
+    };
+  }
 
-    const agentContext = agentInstance?.personality
-      || [readFile(path.join(agentDir, "identity.md")),
-          readFile(path.join(engine.productDir, "yuan", `${cfg.agent?.yuan || "hanako"}.md`)),
-          readFile(path.join(agentDir, "ishiki.md"))].filter(Boolean).join("\n\n");
+  // ──────────── Reply 流程 ────────────
 
-    // memory.md 和 user.md 内容会变，仍需从磁盘读取
-    const memoryMd = readFile(path.join(agentDir, "memory", "memory.md"));
-    const userMd = readFile(path.join(engine.userDir, "user.md"));
-    const isZh = getLocale().startsWith("zh");
-    const memoryContext = memoryMd?.trim()
-      ? (isZh ? `\n\n你的记忆：\n${memoryMd}` : `\n\nYour memory:\n${memoryMd}`)
-      : "";
-    const userContext = userMd?.trim()
-      ? (isZh ? `\n\n用户档案：\n${userMd}` : `\n\nUser profile:\n${userMd}`)
-      : "";
+  /**
+   * 频道检查回调：轻量规则门控 → 单轮 Agent Session → 写入回复
+   * 从 engine._executeChannelCheck 搬入
+   */
+  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, {
+    signal,
+    mentionedAgents,
+    isScheduledCycle = false,
+    unreadSinceBookmark,
+  } = {}) {
+    const engine = this._engine;
+    const msgText = formatMessagesForLLM(newMessages);
+    const recentChannelMessages = this._getRecentChannelMessages(channelName, 30);
+    debugLog()?.log(
+      "channel",
+      `_executeCheck ${agentId} #${channelName} windowMsgs=${newMessages.length} contextPreview=${previewForLog(msgText, 700)}`,
+    );
 
-    // ── 检测 @ ──
-    const isMentioned = msgText.includes(`@${agentName}`) || msgText.includes(`@${agentId}`);
+    const { agentName } = this._getAgentProfile(agentId);
+    const ownerName = engine.userName || "user";
 
-    // ── Step 1: Triage ──
-    let shouldReply = isMentioned;
-
-    if (!shouldReply) {
-      try {
-        const utilCfg = engine.resolveUtilityConfig() || {};
-        const { utility_large: model, large_api_key: api_key, large_base_url: base_url, large_api: api } = utilCfg;
-        if (api_key && base_url && api) {
-          const triageSystem = agentContext + memoryContext + userContext
-            + "\n\n---\n\n"
-            + (isZh
-              ? "你在一个群聊频道里。阅读以下最近的消息，判断你是否要回复。\n"
-                + "回答 YES 的情况：有人跟你说话、@你、问了你能回答的问题、或者你有想说的话。\n"
-                + "回答 NO 的情况：别人已经充分回答了问题（你没有新的补充）、话题跟你无关、你插不上话、或者你刚回复过且没人追问你。\n"
-                + "只回答 YES 或 NO。"
-              : "You are in a group chat channel. Read the recent messages below and decide whether you should reply.\n"
-                + "Answer YES if: someone is talking to you, @-mentions you, asks a question you can answer, or you have something to say.\n"
-                + "Answer NO if: the question has already been adequately answered (you have nothing new to add), the topic is irrelevant to you, you can't contribute, or you just replied and no one followed up.\n"
-                + "Answer only YES or NO.");
-
-          const triageTimeout = AbortSignal.timeout(10_000);
-          const triageSignal = signal
-            ? AbortSignal.any([signal, triageTimeout])
-            : triageTimeout;
-          const answer = await callProviderText({
-            api,
-            model,
-            api_key,
-            base_url,
-            systemPrompt: triageSystem,
-            messages: [{ role: "user", content: isZh ? `#${channelName} 频道最近消息：\n${msgText}` : `#${channelName} recent messages:\n${msgText}` }],
-            temperature: 0,
-            max_tokens: 10,
-            timeoutMs: 10_000,
-            signal: triageSignal,
-          });
-          shouldReply = answer.trim().toUpperCase().includes("YES");
-        } else {
-          // utility_large 凭证不完整，跳过 triage 直接回复
-          shouldReply = true;
-        }
-      } catch (err) {
-        // utility 模型未配置或 triage 调用失败 → 默认回复（让 agent 自己在 reply 阶段判断要不要说话）
-        console.warn(`[channel] triage 不可用，默认回复 (${agentId}/#${channelName}): ${err.message}`);
-        shouldReply = true;
+    // 仅定时 cycle：bookmark 后无用户发言且未 @ 本 agent → 不跑模型，避免「每轮打卡」式刷屏
+    if (!isChannelForceReplyDebug() && isScheduledCycle) {
+      const skipCycle = this._shouldSkipScheduledCycle({
+        unreadSinceBookmark,
+        agentId,
+        agentName,
+        ownerName,
+      });
+      if (skipCycle) {
+        debugLog()?.log(
+          "channel",
+          `reply-gate ${agentId}/#${channelName}: NO (scheduled cycle, no pending owner/@ in unread)`,
+        );
+        return { replied: false };
       }
     }
 
-    console.log(`\x1b[90m[channel] triage ${agentId}/#${channelName}: ${shouldReply ? "YES" : "NO"}${isMentioned ? " (@)" : ""}\x1b[0m`);
-    debugLog()?.log("channel", `triage ${agentId}/#${channelName}: ${shouldReply ? "YES" : "NO"}${isMentioned ? " (mentioned)" : ""} (${newMessages.length} msgs)`);
+    // ── 检测 @ ──
+    const isMentionedInText =
+      msgText.includes(`@${agentName}`) || msgText.includes(`@${agentId}`);
+    /** POST /channels/... 解析出的 @ 列表（如 @3号 解析到 id，正文里未必出现 @sanhao） */
+    const isMentionedByRoute =
+      Array.isArray(mentionedAgents) && mentionedAgents.includes(agentId);
+    const isMentioned = isMentionedInText || isMentionedByRoute;
 
-    if (!shouldReply) {
+    /** 用户是否在要求「多人各自参与」（与「有一个代表回一句」不同） */
+    const asksEachMember =
+      /(每个人|每人|大家|各位|你们几个|都帮我|各自|挨个|一个一个)/.test(msgText);
+
+    const suppressRapidFollowup = this._shouldSuppressRapidFollowup({
+      recentMessages: recentChannelMessages,
+      agentId,
+      agentName,
+      isMentioned,
+      asksEachMember,
+    });
+
+    if (!isChannelForceReplyDebug() && suppressRapidFollowup) {
+      debugLog()?.log("channel", `reply-gate ${agentId}/#${channelName}: NO (rapid followup guard)`);
       return { replied: false };
     }
 
-    // ── Step 2: 两轮 Agent Session 生成回复 ──
+    // 单轮生成，是否 [NO_REPLY] 由模型根据上下文决定。
     try {
-      const replyText = await this._executeReply(agentId, channelName, msgText, { signal });
+      const replyText = await this._executeReply(agentId, channelName, msgText, {
+        signal,
+        isMentioned,
+        asksEachMember,
+      });
 
       if (!replyText) {
-        console.log(`\x1b[90m[channel] ${agentId} 回复为空 (#${channelName})\x1b[0m`);
+        debugLog()?.log(
+          "channel",
+          `reply ${agentId}/#${channelName}: NO_REPLY${isMentioned ? " (mentioned, fallback skipped)" : ""}`,
+        );
         return { replied: false };
       }
 
+      // 超过字数则写入 _docs/*.md，频道内只发摘要 + 查看链接
+      const { body: channelBody, fullMarkdown } = channelBodyWithOptionalDoc(
+        engine.channelsDir,
+        channelName,
+        agentId,
+        replyText,
+      );
+
       // 写入频道文件
       const channelFile = path.join(engine.channelsDir, `${channelName}.md`);
-      appendMessage(channelFile, agentId, replyText);
+      appendMessage(channelFile, agentId, channelBody);
 
-      console.log(`\x1b[90m[channel] ${agentId} replied #${channelName} (${replyText.length} chars)\x1b[0m`);
-      debugLog()?.log("channel", `${agentId} replied #${channelName} (${replyText.length} chars)`);
+      const logLen = fullMarkdown ? `${fullMarkdown.length} chars (stub+doc)` : `${replyText.length} chars`;
+      console.log(`\x1b[90m[channel] ${agentId} replied #${channelName} (${logLen})\x1b[0m`);
+      debugLog()?.log("channel", `${agentId} replied #${channelName} (${logLen})`);
 
       // WS 广播
       this._hub.eventBus.emit({ type: "channel_new_message", channelName, sender: agentId }, null);
 
-      return { replied: true, replyContent: replyText };
+      // 记忆摘要仍用完整正文，避免只摘要到 stub
+      return { replied: true, replyContent: fullMarkdown ?? replyText };
     } catch (err) {
       console.error(`[channel] 回复失败 (${agentId}/#${channelName}): ${err.message}`);
       debugLog()?.error("channel", `回复失败 (${agentId}/#${channelName}): ${err.message}`);
@@ -238,53 +349,74 @@ export class ChannelRouter {
   }
 
   /**
-   * 两轮 Agent Session 生成频道回复
+   * 单轮 Agent Session 生成频道回复
    */
-  async _executeReply(agentId, channelName, msgText, { signal } = {}) {
-    const isZh = getLocale().startsWith("zh");
+  async _executeReply(agentId, channelName, msgText, { signal, isMentioned = false, asksEachMember = false } = {}) {
+    const engine = this._engine;
+
+    if (isChannelForceReplyDebug()) {
+      const text = await runAgentSession(
+        agentId,
+        [
+          {
+            text: `#${channelName} 最近消息：\n\n${msgText}\n\n`
+              + `---\n[调试 HANA_DEBUG_CHANNEL_FORCE_REPLY] 用一两句中文回复，直接输出正文。`
+              + `禁止输出 [NO_REPLY]；接不上话可简单说「在的」或「跟我说」。`,
+            capture: true,
+          },
+        ],
+        { engine, signal, sessionSuffix: "channel-temp", invocationContext: { channelName } },
+      );
+      const cleaned = typeof text === "string" ? text.trim() : "";
+      if (!cleaned || cleaned.includes("[NO_REPLY]")) {
+        return "在的，我听见啦。";
+      }
+      return cleaned;
+    }
+
+    const dispatchMeta = [
+      `被点名: ${isMentioned ? "yes" : "no"}`,
+      `多人各自参与请求: ${asksEachMember ? "yes" : "no"}`,
+      "若没有新增价值可输出 [NO_REPLY]；未被点名时不要只回「嗯/好的」等敷衍短句。",
+    ].join(" | ");
+
     const text = await runAgentSession(
       agentId,
       [
         {
-          text: isZh
-            ? `#${channelName} 频道的最近消息：\n\n${msgText}\n\n`
-              + `请阅读这些消息，用 search_memory 查阅记忆来了解上下文和真实发生过的事。\n`
-              + `注意：你现在的回复用户看不到，这是你的内部思考环节，仅用于查阅资料和理解上下文。下一轮才是你真正发到群聊的内容。`
-            : `Recent messages in #${channelName}:\n\n${msgText}\n\n`
-              + `Read these messages and use search_memory to look up memories for context and real events.\n`
-              + `Note: your reply right now is invisible to users — this is your internal thinking phase, for research and understanding context only. The next round is what actually gets posted to the chat.`,
-          capture: false,
-        },
-        {
-          text: isZh
-            ? `现在请给出你想在 #${channelName} 群聊中发送的回复。这条回复会直接发送到群聊，所有人都能看到。\n\n`
-              + `回复规定：\n`
-              + `- 默认30字以内，像在群里说话，简短自然\n`
-              + `- 如果话题确实需要展开（比如讲故事、分析问题、详细解释），可以写到1000字\n`
-              + `- 直接输出回复内容，不要加任何前缀、解释、MOOD 或代码块\n`
-              + `- 不要重复别人已经说过的内容\n`
-              + `- 只说真实发生过的事，不要编造你没做过的活动或经历\n`
-              + `- 如果你觉得没什么好说的，回复 [NO_REPLY]`
-            : `Now give the reply you want to post in #${channelName}. This reply will be sent directly to the group chat — everyone can see it.\n\n`
-              + `Reply rules:\n`
-              + `- Keep it under 30 words by default — short and natural, like chatting in a group\n`
-              + `- If the topic truly requires elaboration (storytelling, analysis, detailed explanation), you may write up to 1000 words\n`
-              + `- Output the reply directly — no prefixes, explanations, MOOD blocks, or code fences\n`
-              + `- Don't repeat what others have already said\n`
-              + `- Only mention things that actually happened — don't fabricate activities or experiences\n`
-              + `- If you have nothing to say, reply [NO_REPLY]`,
+          text: `#${channelName} 最近消息：\n\n${msgText}\n\n`
+            + `调度提示：${dispatchMeta}\n\n`
+            + "请直接输出你发到频道里的最终内容。\n"
+            + "规则：\n"
+            + "1) 默认 1-3 句，先给结论/建议/下一步。\n"
+            + "2) 像真实群聊，避免模板腔和空话。\n"
+            + "3) 不重复他人或你自己刚说过的话；无新增价值时输出 [NO_REPLY]。\n"
+            + "4) 若被点名或用户要求大家各自回答，优先给出实质回应，不要装作没看见。\n"
+            + "5) 信息不全时，先问一个关键澄清问题再推进。\n"
+            + "6) 不要输出角色标签、前缀或代码块；只输出正文，或 [NO_REPLY]。\n"
+            + "7) 未被点名时若只会敷衍应答，必须输出 [NO_REPLY]，不要凑字数。",
           capture: true,
         },
       ],
-      { engine: this._engine, signal, sessionSuffix: "channel-temp" },
+      { engine, signal, sessionSuffix: "channel-temp", invocationContext: { channelName } },
     );
 
-    if (!text || text.includes("[NO_REPLY]")) {
+    let cleaned = String(text || "").trim();
+    if (!cleaned || cleaned.includes("[NO_REPLY]")) {
+      // 被点名/明确要各自回答时，尽量保证有可见回应，避免体验“喊了没反应”（避免无信息的「嗯嗯」）。
+      if (isMentioned || asksEachMember) {
+        return "在的，收到。有需要我再细说。";
+      }
       debugLog()?.log("channel", `${agentId}/#${channelName}: chose not to reply`);
       return null;
     }
 
-    return text;
+    if (!isMentioned && !asksEachMember && isTrivialChannelFiller(cleaned)) {
+      debugLog()?.log("channel", `${agentId}/#${channelName}: trivial filler discarded`);
+      return null;
+    }
+
+    return cleaned;
   }
 
   /**

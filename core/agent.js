@@ -23,12 +23,16 @@ import { createChannelTool } from "../lib/tools/channel-tool.js";
 import { createAskAgentTool } from "../lib/tools/ask-agent-tool.js";
 import { createDmTool } from "../lib/tools/dm-tool.js";
 import { createBrowserTool } from "../lib/tools/browser-tool.js";
+import { createCdpBrowserTool } from "../lib/tools/cdp-browser-tool.js";
 import { createPinnedMemoryTools } from "../lib/tools/pinned-memory.js";
 import { createExperienceTools } from "../lib/tools/experience.js";
 import { createInstallSkillTool } from "../lib/tools/install-skill.js";
 import { createNotifyTool } from "../lib/tools/notify-tool.js";
 import { createUpdateSettingsTool } from "../lib/tools/update-settings-tool.js";
 import { createDelegateTool } from "../lib/tools/delegate-tool.js";
+import { createServiceHandoffTool } from "../lib/tools/service-handoff-tool.js";
+import { createBridgeMessageOwnerTool } from "../lib/tools/bridge-message-owner-tool.js";
+import { createCreateScriptTool } from "../lib/tools/create-script-tool.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import { runCompatChecks } from "../lib/compat/index.js";
@@ -40,12 +44,13 @@ export class Agent {
    * @param {string} opts.productDir - 产品模板目录（ishiki.example.md, yuan 模板等）
    * @param {string} opts.userDir    - 用户数据目录（user.md, 用户头像）—— 跨助手共享
    */
-  constructor({ agentDir, productDir, userDir, channelsDir, agentsDir, searchConfigResolver }) {
+  constructor({ agentDir, productDir, userDir, channelsDir, agentsDir, hanakoHome, searchConfigResolver }) {
     this.agentDir = agentDir;
     this.productDir = productDir;
     this.userDir = userDir;
     this.channelsDir = channelsDir || null;
     this.agentsDir = agentsDir || null;
+    this.hanakoHome = hanakoHome || path.dirname(path.dirname(agentDir));
     this._searchConfigResolver = searchConfigResolver || null;
 
     // 路径
@@ -88,7 +93,27 @@ export class Agent {
     this._artifactTool = null;
     this._channelTool = null;
     this._browserTool = null;
+    this._cdpBrowserTool = null;
     this._notifyTool = null;
+    this._createScriptTool = null;
+    this._serviceHandoffTool = null;
+    this._bridgeMessageOwnerTool = null;
+  }
+
+  /** 列出 agents 目录下其它助手（id + config 展示名） */
+  _listSiblingAgents() {
+    if (!this.agentsDir) return [];
+    try {
+      return fs.readdirSync(this.agentsDir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && fs.existsSync(path.join(this.agentsDir, e.name, "config.yaml")))
+        .map(e => {
+          try {
+            const raw = fs.readFileSync(path.join(this.agentsDir, e.name, "config.yaml"), "utf-8");
+            const nameMatch = raw.match(/^\s*name:\s*(.+)$/m);
+            return { id: e.name, name: nameMatch?.[1]?.trim() || e.name };
+          } catch { return { id: e.name, name: e.name }; }
+        });
+    } catch { return []; }
   }
 
   // ════════════════════════════
@@ -243,9 +268,15 @@ export class Agent {
     this._presentFilesTool = createPresentFilesTool();
     this._artifactTool = createArtifactTool();
     this._browserTool = createBrowserTool();
+    this._cdpBrowserTool = createCdpBrowserTool({
+      port: this._config?.cdp?.port ?? 9222,
+      autoLaunch: this._config?.cdp?.auto_launch !== false,
+      userDataDir: this._config?.cdp?.user_data_dir,
+    });
     this._notifyTool = createNotifyTool({
       onNotify: (title, body) => this._notifyHandler?.(title, body),
     });
+    this._createScriptTool = createCreateScriptTool({ hanakoHome: this.hanakoHome });
 
     // 10. 设置修改工具
     this._updateSettingsTool = createUpdateSettingsTool({
@@ -323,6 +354,20 @@ export class Agent {
       readOnlyBuiltinTools: READ_ONLY_BUILTIN_TOOLS,
     });
 
+    this._serviceHandoffTool = createServiceHandoffTool({
+      agentId: path.basename(this.agentDir),
+      listAgents: () => this._engine?.listAgents?.() ?? this._listSiblingAgents(),
+      getEngine: () => this._engine,
+      channelsDir: this.channelsDir,
+      onChannelPost: (channelName, senderId) => {
+        this._channelPostHandler?.(channelName, senderId);
+      },
+    });
+
+    this._bridgeMessageOwnerTool = createBridgeMessageOwnerTool({
+      getEngine: () => this._engine,
+    });
+
     // 12. 组装 system prompt
     log(`  [agent] 9. buildSystemPrompt...`);
     this._systemPrompt = this.buildSystemPrompt();
@@ -330,9 +375,52 @@ export class Agent {
   }
 
   /**
+   * Bridge 本人（owner）私聊 JSONL 收尾：与桌面 session 的 notifySessionEnd 同级，
+   * 触发最终滚动摘要、编译与经验提取。按文件去重、顺序执行，避免并行打爆模型。
+   */
+  async flushBridgeOwnerMemory() {
+    const ticker = this._memoryTicker;
+    if (!ticker?.notifySessionEnd) return;
+
+    const indexPath = path.join(this.sessionDir, "bridge", "bridge-sessions.json");
+    let index = {};
+    try {
+      index = JSON.parse(fs.readFileSync(indexPath, "utf-8"));
+    } catch {
+      return;
+    }
+
+    const bridgeDir = path.join(this.sessionDir, "bridge");
+    const seen = new Set();
+    const TIMEOUT_MS = 12_000;
+
+    for (const raw of Object.values(index)) {
+      const entry = typeof raw === "string" ? { file: raw } : raw;
+      if (!entry?.file || typeof entry.file !== "string") continue;
+      if (!entry.file.startsWith("owner/")) continue;
+
+      const fullPath = path.join(bridgeDir, entry.file);
+      if (seen.has(fullPath)) continue;
+      seen.add(fullPath);
+
+      try {
+        if (!fs.existsSync(fullPath)) continue;
+      } catch {
+        continue;
+      }
+
+      await Promise.race([
+        ticker.notifySessionEnd(fullPath),
+        new Promise((r) => setTimeout(r, TIMEOUT_MS)),
+      ]).catch(() => {});
+    }
+  }
+
+  /**
    * 优雅关闭：停止记忆调度，等待 tick 完成后关闭 DB
    */
   async dispose() {
+    await this.flushBridgeOwnerMemory();
     await this._memoryTicker?.stop();
     this._factStore?.close();
   }
@@ -398,10 +486,14 @@ export class Agent {
       this._askAgentTool,
       this._dmTool,
       this._browserTool,
+      this._cdpBrowserTool,
       this._installSkillTool,
       this._notifyTool,
       this._updateSettingsTool,
       this._delegateTool,
+      this._serviceHandoffTool,
+      this._bridgeMessageOwnerTool,
+      this._createScriptTool,
     ].filter(Boolean);
   }
 
@@ -481,6 +573,14 @@ export class Agent {
 
     // 重建 system prompt
     this._systemPrompt = this.buildSystemPrompt();
+  }
+
+  /**
+   * 仅从磁盘重载 config.yaml（不写盘）。
+   * 用于 REST 在非当前助手上合并写入后，同步长驻实例的 _config（如 models.chat）。
+   */
+  reloadConfigFromDisk() {
+    this._config = loadConfig(this.configPath);
   }
 
   // ════════════════════════════
@@ -613,6 +713,58 @@ export class Agent {
     // Skills 注入（用 SDK 原版 formatSkillsForPrompt）
     if (this._enabledSkills?.length > 0) {
       parts.push(formatSkillsForPrompt(this._enabledSkills));
+      parts.push(isZh
+        ? "\n## 文件呈现规则\n\n" +
+          "当你为用户成功创建了文件（PDF、Word、Excel、PPT、Markdown 等）并确认写入磁盘后，" +
+          "必须立即调用 present_files 工具，在 filepaths 参数中传入文件的绝对路径数组，" +
+          "让用户可以在对话中直接打开文件。第一个路径应该是用户最想看到的文件。" +
+          "不要仅在文本里提及文件路径，要调用工具。"
+        : "\n## File Presentation Rules\n\n" +
+          "After successfully creating files (PDF, Word, Excel, PPT, Markdown, etc.) and confirming they are written to disk, " +
+          "you must immediately call the present_files tool, passing an array of absolute file paths in the filepaths parameter, " +
+          "so the user can open files directly from the conversation. The first path should be the file the user most wants to see. " +
+          "Don't just mention file paths in text — call the tool."
+      );
+      parts.push(isZh
+        ? "\n## Artifact 预览规则\n\n" +
+          "当你为用户生成 HTML 页面、交互式可视化、完整代码文件或长篇 Markdown 内容时，" +
+          "使用 create_artifact 工具，内容会在预览面板中渲染。\n" +
+          "适合用 artifact 的情况：可运行的 HTML/CSS/JS 页面、SVG 图表、完整代码文件、长篇格式化文档。\n" +
+          "不适合用 artifact 的情况：简短的文字回复、对话性回答、单行代码片段（直接在消息中展示即可）。"
+        : "\n## Artifact Preview Rules\n\n" +
+          "When generating HTML pages, interactive visualizations, complete code files, or long-form Markdown content, " +
+          "use the create_artifact tool — content will be rendered in the preview panel.\n" +
+          "Good for artifacts: runnable HTML/CSS/JS pages, SVG charts, complete code files, long formatted documents.\n" +
+          "Not for artifacts: short text replies, conversational answers, single-line code snippets (show directly in the message)."
+      );
+      parts.push(isZh
+        ? "\n## 单次使用浏览器规则\n\n" +
+          "你有一个单次使用浏览器工具（single_use_browser），用于无需用户登录、单次访问的网页浏览。\n\n" +
+          "### 何时使用（必须遵守）\n\n" +
+          "获取网页信息时优先用 web_search 或 web_fetch；仅在以下情况使用 single_use_browser：\n" +
+          "- 页面**不需要**用户登录或身份验证\n" +
+          "- 单次访问即可完成（查一条信息、截一张图、读一个公开页）\n" +
+          "- web_fetch 无法获取内容（如 JS 渲染页）或需要看视觉布局\n\n" +
+          "**禁止**在需要用户登录的页面使用 single_use_browser；**禁止**在 web_search/web_fetch 能完成时启动浏览器。用完后必须调用 single_use_browser(action: \"stop\") 关闭。\n\n" +
+          "### 操作规则\n\n" +
+          "1. 使用前调用 single_use_browser(action: \"start\")，完成后调用 single_use_browser(action: \"stop\")\n" +
+          "2. 优先用 snapshot 感知页面，仅在需要视觉信息时用 screenshot\n" +
+          "3. [ref] 在页面变化后失效，navigate/click 会返回新 snapshot\n" +
+          "4. 点击或输入前若 ref 失效，先调用 snapshot 获取最新编号"
+        : "\n## Single-use browser rules\n\n" +
+          "You have a single-use browser tool (single_use_browser) for one-off web visits when no user login is required.\n\n" +
+          "### When to use (mandatory)\n\n" +
+          "Prefer web_search or web_fetch for web information. Use single_use_browser only when:\n" +
+          "- The page does NOT require user login or authentication\n" +
+          "- A single visit is enough (one lookup, one screenshot, one public page)\n" +
+          "- web_fetch cannot get the content (e.g. JS-rendered) or you need visual layout\n\n" +
+          "Do NOT use single_use_browser for pages that require login; do NOT launch it when web_search or web_fetch can do the job. Always call single_use_browser(action: \"stop\") when done.\n\n" +
+          "### Operation rules\n\n" +
+          "1. Call single_use_browser(action: \"start\") before use, single_use_browser(action: \"stop\") when done\n" +
+          "2. Prefer snapshot for page awareness; use screenshot only when visual info is needed\n" +
+          "3. [ref] from snapshot becomes invalid after page changes; navigate/click return a new snapshot\n" +
+          "4. If ref is stale before click/type, call snapshot first to get latest refs"
+      );
     }
 
     // 网页工具选择优先级（跨工具编排，工具 description 里放不下）

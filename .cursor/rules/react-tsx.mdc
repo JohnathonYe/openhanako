@@ -1,0 +1,37 @@
+---
+description: desktop React 组件、路径别名与迁移期约定
+globs: desktop/src/react/**/*.tsx, desktop/src/react/**/*.ts
+alwaysApply: false
+---
+
+# React / TypeScript 前端规范（desktop/src/react）
+
+## 路径别名
+
+- 从 `desktop/src/react` 内引用时使用 **`@/`** 别名（对应 `desktop/src/react`），例如 `import { useStore } from '@/stores'`
+- `vite.config.ts` 与 `tsconfig.json` 已配置 `@/*` → `desktop/src/react/*`
+
+## 组件
+
+- 使用 **函数组件**，组件文件 **default export** 导出组件
+- 类型定义集中在 `types.ts`，或组件内 `interface Props { ... }`
+- 组件文件顶部可有简短块注释说明职责（如“替代 xxx-shim”“通过 portal 渲染到 #inputAreaPortal”）
+
+```tsx
+/**
+ * InputArea — 聊天输入区域 React 组件
+ * 通过 portal 渲染到 index.html 的 #inputAreaPortal。
+ */
+import { useStore } from '../stores';
+export default function InputArea() { ... }
+```
+
+## 与旧代码的桥接
+
+- 渐进迁移期：通过 **bridge.ts** 与 **shims/** 让旧 app.js 仍能调用已迁移到 React 的逻辑；每迁移完一个模块可从 bridge 中移除对应 shim
+- 不要在新 React 代码里直接依赖未通过 bridge/shim 暴露的旧全局对象，优先用 `useStore` 与 `hanaFetch`
+
+## 请求与状态
+
+- 调用服务端 API 使用 **`hanaFetch`**（`hooks/use-hana-fetch.ts`），带认证与超时
+- 全局 UI 状态使用 **Zustand**（`stores/`），见 `stores-zustand.mdc`

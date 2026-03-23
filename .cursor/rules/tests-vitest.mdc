@@ -1,0 +1,38 @@
+---
+description: Vitest 测试文件的组织与写法
+globs: tests/**/*.js, tests/**/*.ts
+alwaysApply: false
+---
+
+# 测试规范（Vitest）
+
+## 位置与命名
+
+- 测试文件放在 **tests/** 目录，命名 `*.test.js` 或 `*.test.ts`
+- 被测模块多为 `lib/` 或 `core/` 下的 .js 模块
+
+## 结构
+
+- 使用 `describe("模块或功能名", () => { ... })` 分组
+- 用例使用 `it("描述预期行为", async () => { ... })`
+- 异步用例可 `async`，超时由 `vitest.config.js` 统一设置（如 10s）
+
+## 断言与 mock
+
+- 断言使用 Vitest 的 `expect(...).toEqual(...)`、`.toBe(...)`、`.toHaveLength(...)` 等
+- Mock：`vi.spyOn(console, "log").mockImplementation(() => {})`、`vi.fn()` 等，避免真实 I/O 或副作用
+
+```javascript
+describe("cron-scheduler", () => {
+  it("执行成功时记录 success", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    // ... 调用被测逻辑
+    expect(calls.runs[0].run.status).toBe("success");
+    expect(done).toEqual([{ id: "job_1", result: { status: "success" } }]);
+  });
+});
+```
+
+## 运行
+
+- `npm test` 执行一次；`npm run test:watch` 监听模式
