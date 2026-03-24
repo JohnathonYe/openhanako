@@ -51,7 +51,7 @@ import {
 } from "./llm-utils.js";
 import { debugLog } from "../lib/debug-log.js";
 import { createSandboxedTools } from "../lib/sandbox/index.js";
-import { t } from "../server/i18n.js";
+import { t, getLocale } from "../server/i18n.js";
 import { getToolRegistry } from "../lib/tools/registry.js";
 import { loadUserScriptTools } from "../lib/tools/user-script-loader.js";
 import { wrapToolWithDebugLog } from "../lib/tools/tool-debug-log.js";
@@ -126,6 +126,8 @@ export class HanaEngine {
       getAgentById: (id) => this._agentMgr.getAgent(id),
       listAgents: () => this.listAgents(),
       syncPlanModeToSession: () => this.setPlanMode(this.planMode),
+      applyPlanDraftTodoOnly: (sp) => this.applyPlanDraftTodoOnly(sp),
+      syncSessionToolsToPlanMode: (sp) => this.syncSessionToolsToPlanMode(sp),
       flushBridgeOwnerMemory: () => this.flushBridgeOwnerMemory(),
     });
 
@@ -149,6 +151,7 @@ export class HanaEngine {
     this._bridge = new BridgeSessionManager({
       getAgent: () => this.agent,
       getAgentById: (id) => this._agentMgr.getAgent(id),
+      getAllAgents: () => [...this._agentMgr.agents.values()],
       getSkillsForAgent: (ag) => this._getSkillsForAgent(ag),
       getModelManager: () => this._models,
       getResourceLoader: () => this._resourceLoader,
@@ -174,6 +177,8 @@ export class HanaEngine {
 
     /** handoff_service 工具在主聊天中排队，于本轮 turn_end 后切换 agent 并代为 prompt */
     this._pendingServiceHandoff = null;
+    /** Bridge 本人私聊 handoff 后，首轮回复发到 IM 后再由新助手接棒一条 */
+    this._bridgeImHandoffFollowup = null;
     /** @type {((msg: object) => void) | null} WebSocket 广播，由 chat 路由注入 */
     this._agentSwitchBroadcast = null;
     /** handoff 触发的续写回合不经由 WS prompt，需单独广播 status 以同步 isStreaming */
@@ -219,6 +224,49 @@ export class HanaEngine {
       fromAgentId: payload.fromAgentId || null,
       fromAgentName: payload.fromAgentName || null,
     };
+  }
+
+  /**
+   * Bridge IM 私聊：handoff_service 已切换会话助手后排队，首轮助手回复发出后再跑一轮接棒（新助手开口）
+   * @param {{ sessionKey: string, task?: string, mode?: 'switch'|'clear' }} payload
+   */
+  queueBridgeImHandoffFollowup(payload) {
+    if (!payload?.sessionKey || typeof payload.sessionKey !== "string") return;
+    const sk = payload.sessionKey.trim();
+    if (!sk) return;
+    const mode = payload.mode === "clear" ? "clear" : "switch";
+    this._bridgeImHandoffFollowup = {
+      sessionKey: sk,
+      task: typeof payload.task === "string" ? payload.task.trim() : "",
+      mode,
+    };
+  }
+
+  /**
+   * 由 bridge-manager 在首轮回复发到平台后调用：若队列匹配 sessionKey，则以新助手生成一条接棒回复
+   * @param {string} sessionKey
+   * @param {object} [meta]
+   * @returns {Promise<string|null>}
+   */
+  async runBridgeHandoffFollowupMessage(sessionKey, meta) {
+    const fu = this._bridgeImHandoffFollowup;
+    if (!fu || fu.sessionKey !== sessionKey) return null;
+    this._bridgeImHandoffFollowup = null;
+    const isZh = getLocale().startsWith("zh");
+    let prompt;
+    if (fu.mode === "clear") {
+      prompt = isZh
+        ? "【系统】用户已把本对话恢复为设置中的默认 Bridge 助手。你可以看到之前的对话记录。请用一两句简短、自然的话向用户确认你已接棒。"
+        : "[System] The user restored this chat to the default Bridge assistant. You can see prior conversation history. Briefly confirm you're taking over.";
+    } else {
+      const taskPart = fu.task
+        ? (isZh ? `\n转交说明：${fu.task}` : `\nTask: ${fu.task}`)
+        : "";
+      prompt = isZh
+        ? `【系统】用户刚把本社交平台对话转交给你。你可以看到之前的对话记录。${taskPart}\n请用一两句简短、自然的话向用户确认你已接棒，并可简要回应转交事项（如有）。`
+        : `[System] The user handed this chat to you. You can see prior conversation history.${taskPart}\nBriefly confirm you're taking over and respond to the task if any.`;
+    }
+    return this.executeExternalMessage(prompt, sessionKey, meta, { isBridgeHandoffFollowup: true });
   }
 
   /** 由 server/routes/chat 注册，用于 handoff 后同步桌面当前助手与会话 */
@@ -378,6 +426,12 @@ export class HanaEngine {
     const ids = new Set([this.currentAgentId]);
     const bid = this._readPreferences()?.bridge?.ownerAgentId;
     if (bid && typeof bid === "string" && bid.trim()) ids.add(bid.trim());
+    const bySession = this._readPreferences()?.bridge?.chatAgentBySession;
+    if (bySession && typeof bySession === "object") {
+      for (const v of Object.values(bySession)) {
+        if (v && typeof v === "string" && v.trim()) ids.add(v.trim());
+      }
+    }
     for (const id of ids) {
       await this._agentMgr.getAgent(id)?.flushBridgeOwnerMemory?.();
     }
@@ -459,6 +513,21 @@ export class HanaEngine {
   setMemoryMasterEnabled(id, v) { return this._configCoord.setMemoryMasterEnabled(id, v); }
   persistMemoryEnabled() { return this._configCoord.persistMemoryEnabled(); }
   setPlanMode(enabled) { return this._configCoord.setPlanMode(enabled, allBuiltInTools); }
+
+  /** /plan 仅规划阶段：本轮仅允许 todo 工具，结束后恢复为 Plan Mode 对应工具集 */
+  applyPlanDraftTodoOnly(sessionPath) {
+    const entry = this._sessionCoord.sessions.get(sessionPath);
+    if (!entry?.session?.setActiveToolsByName) return;
+    entry.session.setActiveToolsByName(["todo"]);
+  }
+
+  /** 将指定 session 的工具列表恢复为当前「操作电脑」开关状态 */
+  syncSessionToolsToPlanMode(sessionPath) {
+    const entry = this._sessionCoord.sessions.get(sessionPath);
+    if (!entry?.session) return;
+    const agent = this.getAgent(entry.agentId) || this.agent;
+    this._configCoord.applyPlanModeToolsToSession(entry.session, agent, allBuiltInTools);
+  }
   async updateConfig(p) { return this._configCoord.updateConfig(p); }
 
   getPreferences() { return this._readPreferences(); }
@@ -479,8 +548,57 @@ export class HanaEngine {
   //  Bridge 代理（→ BridgeSessionManager）
   // ════════════════════════════
 
-  getBridgeIndex() { return this._bridge.readIndex(); }
-  saveBridgeIndex(i) { return this._bridge.writeIndex(i); }
+  /** 合并所有助手目录下的 bridge 索引（会话级 handoff 后索引可能分属不同助手） */
+  getBridgeIndex() { return this._bridge.getMergedIndex(); }
+
+  /** @deprecated 使用 saveBridgeIndexForAgent；旧版单索引写入 */
+  saveBridgeIndex(i) { return this._bridge.writeIndex(i, this.getBridgeAgent()); }
+
+  saveBridgeIndexForAgent(agent, index) { return this._bridge.writeIndex(index, agent); }
+
+  /**
+   * 指定 sessionKey 在社交平台对话中实际使用的助手（含 chatAgentBySession 覆盖）。
+   */
+  resolveBridgeSessionAgent(sessionKey) {
+    return this._bridge.resolveSessionAgent(sessionKey);
+  }
+
+  /** 设置「本 IM 会话」固定使用的助手；agentId 为 null 则清除覆盖 */
+  setBridgeChatAgentForSession(sessionKey, agentId) {
+    const prefs = this.getPreferences();
+    if (!prefs.bridge) prefs.bridge = {};
+    if (!prefs.bridge.chatAgentBySession) prefs.bridge.chatAgentBySession = {};
+    if (agentId == null || agentId === "") {
+      delete prefs.bridge.chatAgentBySession[sessionKey];
+    } else {
+      prefs.bridge.chatAgentBySession[sessionKey] = agentId;
+    }
+    this.savePreferences(prefs);
+  }
+
+  /** 清除某会话在索引中的 JSONL 引用（切换助手前调用，下次对话在新助手下新建 session） */
+  clearBridgeSessionIndexEntry(sessionKey) {
+    this._bridge.clearSessionEntry(sessionKey);
+  }
+
+  readBridgeIndexForAgent(agent) {
+    return this._bridge.readIndex(agent);
+  }
+
+  /**
+   * 定位某 sessionKey 的索引条目（优先当前解析助手，否则扫盘，兼容旧数据）
+   * @returns {{ agent: object, raw: object|string }|null}
+   */
+  findBridgeSessionEntry(sessionKey) {
+    const primary = this.resolveBridgeSessionAgent(sessionKey);
+    const idx = this._bridge.readIndex(primary);
+    if (idx[sessionKey] != null) return { agent: primary, raw: idx[sessionKey] };
+    for (const ag of this._agentMgr.agents.values()) {
+      const i = this._bridge.readIndex(ag);
+      if (i[sessionKey] != null) return { agent: ag, raw: i[sessionKey] };
+    }
+    return null;
+  }
   async executeExternalMessage(p, sk, m, o) { return this._bridge.executeExternalMessage(p, sk, m, o); }
   injectBridgeMessage(sk, t) { return this._bridge.injectMessage(sk, t); }
 
@@ -722,9 +840,20 @@ export class HanaEngine {
 
     const totalTime = ((Date.now() - startupTimer) / 1000).toFixed(1);
     log(`✿ 初始化完成（${totalTime}s）`);
+
+    try {
+      const { startDiaryAutoScheduler } = await import("../lib/diary/diary-scheduler.js");
+      startDiaryAutoScheduler(this);
+    } catch (e) {
+      console.warn(`[engine] diary scheduler: ${e.message}`);
+    }
   }
 
   async dispose() {
+    try {
+      const { stopDiaryAutoScheduler } = await import("../lib/diary/diary-scheduler.js");
+      stopDiaryAutoScheduler();
+    } catch {}
     this._skills.unwatch();
     await this._agentMgr.disposeAll(this._sessionCoord.session);
     await this._sessionCoord.cleanupSession();
@@ -807,26 +936,71 @@ export class HanaEngine {
   //  日记 / 工具调用
   // ════════════════════════════
 
-  async writeDiary() {
-    const currentPath = this.currentSessionPath;
-    if (currentPath && this.agent.memoryTicker) {
-      await this.agent.memoryTicker.flushSession(currentPath);
+  /**
+   * @param {object} [opts]
+   * @param {string} [opts.agentId] - 默认当前助手
+   * @param {{ logicalDate: string, rangeStart: Date, rangeEnd: Date }} [opts.logicalDay] - 覆盖「逻辑日」（日界自动会传入）
+   * @param {(phase: string) => void} [opts.onProgress]
+   * @param {boolean} [opts.skipMemoryFollowup] - 跳过日记后的记忆整理（调试）
+   */
+  async writeDiary(opts = {}) {
+    const {
+      agentId,
+      logicalDay: logicalDayIn,
+      onProgress,
+      skipMemoryFollowup = false,
+    } = typeof opts === "object" && opts !== null ? opts : {};
+
+    const target = agentId ? this.getAgent(agentId) : this.agent;
+    if (!target) {
+      const { getLocale } = await import("../server/i18n.js");
+      const isZh = getLocale().startsWith("zh");
+      return { error: isZh ? "未找到助手" : "Agent not found" };
     }
-    const { writeDiary } = await import("../lib/diary/diary-writer.js");
-    const diaryModelId = this.agent.config.models?.chat || this.agent.memoryModel;
-    const resolvedModel = this._models.resolveModelWithCredentials(diaryModelId, this.agent.config);
-    return writeDiary({
-      summaryManager: this.agent.summaryManager,
+
+    const effectiveAgentId = agentId || this.currentAgentId;
+    const sessionPath = this.currentSessionPath;
+    const pathAgentId = sessionPath ? this.agentIdFromSessionPath(sessionPath) : null;
+    if (sessionPath && target.memoryTicker && pathAgentId === effectiveAgentId) {
+      await target.memoryTicker.flushSession(sessionPath);
+    }
+
+    const { getLogicalDay } = await import("../lib/time-utils.js");
+    const logicalDay = logicalDayIn || getLogicalDay();
+
+    const { writeDiary: writeDiaryLib } = await import("../lib/diary/diary-writer.js");
+    const diaryModelId = target.config.models?.chat || target.memoryModel;
+    const resolvedModel = this._models.resolveModelWithCredentials(diaryModelId, target.config);
+
+    const result = await writeDiaryLib({
+      summaryManager: target.summaryManager,
       resolvedModel,
-      agentPersonality: this.agent.personality,
+      agentPersonality: target.personality,
       memory: (() => {
-        try { return fs.readFileSync(this.agent.memoryMdPath, "utf-8"); } catch { return ""; }
+        try { return fs.readFileSync(target.memoryMdPath, "utf-8"); } catch { return ""; }
       })(),
-      userName: this.agent.userName,
-      agentName: this.agent.agentName,
+      userName: target.userName,
+      agentName: target.agentName,
       cwd: this.homeCwd || process.cwd(),
-      activityStore: this.activityStore,
+      activityStore: this.getActivityStore(effectiveAgentId),
+      logicalDay,
+      onProgress: (phase) => onProgress?.(phase),
     });
+
+    if (result.error) return result;
+
+    if (!skipMemoryFollowup) {
+      const { runDiaryMemoryFollowup } = await import("../lib/diary/diary-memory-followup.js");
+      await runDiaryMemoryFollowup({
+        agent: target,
+        resolveModel: (bareId, cfg) => this._models.resolveModelWithCredentials(bareId, cfg),
+        diaryContent: result.content,
+        logicalDate: result.logicalDate,
+        onProgress,
+      });
+    }
+
+    return result;
   }
 
   async summarizeTitle(ut, at) {

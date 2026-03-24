@@ -58,6 +58,11 @@ export interface ChatMessage {
   deskContext?: DeskContext | null;
   // Assistant
   blocks?: ContentBlock[];
+  /** 该条助手消息所属 agent（与全局 currentAgentId 解耦，避免切换 agent 后历史气泡错显） */
+  agentId?: string;
+  agentName?: string;
+  agentYuan?: string;
+  agentAvatarUrl?: string | null;
   // 通用
   timestamp?: number;
 }

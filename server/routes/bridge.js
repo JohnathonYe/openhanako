@@ -178,7 +178,6 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
   app.get("/api/bridge/sessions", async (req) => {
     const platform = req.query?.platform; // optional filter
     const index = engine.getBridgeIndex();
-    const bridgeDir = path.join(engine.getBridgeAgent().sessionDir, "bridge");
     const prefs = engine.getPreferences();
     const owner = prefs.bridge?.owner || {};
     const sessions = [];
@@ -195,9 +194,11 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
       // 按平台过滤
       if (platform && plat !== platform) continue;
 
-      // 获取最后修改时间
+      // 获取最后修改时间（会话级 /agent 后 JSONL 可能在不同助手目录下）
+      const sessAgent = engine.resolveBridgeSessionAgent(sessionKey);
+      const sessBridgeDir = path.join(sessAgent.sessionDir, "bridge");
       let lastActive = null;
-      const fp = path.join(bridgeDir, file);
+      const fp = path.join(sessBridgeDir, file);
       try {
         const stat = fs.statSync(fp);
         lastActive = stat.mtimeMs;
@@ -222,13 +223,14 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
 
   /** 读取指定 bridge session 的消息 */
   app.get("/api/bridge/sessions/:sessionKey/messages", async (req) => {
-    const { sessionKey } = req.params;
-    const index = engine.getBridgeIndex();
-    const raw = index[sessionKey];
+    const sessionKey = decodeURIComponent(req.params.sessionKey);
+    const found = engine.findBridgeSessionEntry(sessionKey);
+    if (!found) return { error: "session not found", messages: [] };
+    const raw = found.raw;
     const file = typeof raw === "string" ? raw : raw?.file;
     if (!file) return { error: "session not found", messages: [] };
 
-    const bridgeDir = path.join(engine.getBridgeAgent().sessionDir, "bridge");
+    const bridgeDir = path.join(found.agent.sessionDir, "bridge");
     const fp = path.resolve(bridgeDir, file);
 
     // 防止 path traversal
@@ -237,8 +239,8 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
     }
 
     try {
-      const raw = fs.readFileSync(fp, "utf-8");
-      const lines = raw.trim().split("\n").map(l => {
+      const fileContent = fs.readFileSync(fp, "utf-8");
+      const lines = fileContent.trim().split("\n").map(l => {
         try { return JSON.parse(l); } catch { return null; }
       }).filter(Boolean);
 
@@ -277,16 +279,19 @@ export default async function bridgeRoute(app, { engine, bridgeManager }) {
 
   /** 重置 bridge session（清除上下文，下次消息新建 session） */
   app.post("/api/bridge/sessions/:sessionKey/reset", async (req) => {
-    const { sessionKey } = req.params;
-    const index = engine.getBridgeIndex();
+    const sessionKey = decodeURIComponent(req.params.sessionKey);
+    const found = engine.findBridgeSessionEntry(sessionKey);
+    if (!found) return { ok: false, error: "session not found" };
+
+    const index = engine.readBridgeIndexForAgent(found.agent);
     const raw = index[sessionKey];
-    if (!raw) return { ok: false, error: "session not found" };
+    if (raw == null) return { ok: false, error: "session not found" };
 
     // 保留元数据（name, avatarUrl），只删 file 引用
     const entry = typeof raw === "string" ? {} : { ...raw };
     delete entry.file;
     index[sessionKey] = entry;
-    engine.saveBridgeIndex(index);
+    engine.saveBridgeIndexForAgent(found.agent, index);
 
     return { ok: true };
   });

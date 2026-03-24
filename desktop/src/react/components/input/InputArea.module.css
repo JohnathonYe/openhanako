@@ -379,7 +379,10 @@
 }
 
 .todo-display.has-todos {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 /* 书签标签 */
@@ -454,7 +457,27 @@
     margin-left: 0.25rem;
 }
 
+.todo-clear-btn {
+    padding: 0.15rem 0.4rem;
+    font-family: inherit;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+    -webkit-app-region: no-drag;
+}
+.todo-clear-btn:hover {
+    color: var(--text);
+    border-color: rgba(var(--accent-rgb), 0.4);
+}
+
 /* 展开的待办列表 */
+.todo-display.has-todos .todo-list {
+    flex-basis: 100%;
+}
 .todo-list {
     display: none;
     padding: var(--space-xs) var(--space-sm);
@@ -491,6 +514,157 @@
 
 .todo-item.done .todo-check {
     opacity: 0.5;
+}
+
+.plan-confirm-panel {
+    width: 100%;
+    padding: var(--space-xs) var(--space-sm);
+    background: linear-gradient(rgba(var(--accent-rgb), 0.08), rgba(var(--accent-rgb), 0.08)), var(--bg-card);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.12);
+}
+
+.plan-confirm-panel .todo-list,
+.plan-confirm-body {
+    display: block;
+    background: transparent;
+    box-shadow: none;
+    padding: 0;
+    animation: none;
+}
+
+.plan-confirm-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.plan-confirm-panel:not(.plan-confirm-panel-expanded) .plan-confirm-header {
+    margin-bottom: 0;
+}
+
+.plan-confirm-panel.plan-confirm-panel-expanded .plan-confirm-header {
+    margin-bottom: 0.5rem;
+}
+
+.plan-confirm-title {
+    flex: 1;
+}
+
+.plan-confirm-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.plan-confirm-toggle {
+    padding: 0.25rem 0.5rem;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.plan-confirm-toggle:hover {
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.06);
+}
+
+.plan-confirm-hint {
+    margin: 0 0 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.todo-plan-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    width: 100%;
+}
+
+.todo-plan-input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.2rem 0.35rem;
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--text);
+}
+
+.todo-plan-remove {
+    flex-shrink: 0;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.7rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+
+.todo-plan-remove:hover {
+    color: var(--danger, #c44);
+    background: rgba(0, 0, 0, 0.06);
+}
+
+.todo-plan-add {
+    margin-top: 0.35rem;
+    padding: 0.25rem 0;
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+}
+
+.plan-confirm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.65rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(var(--accent-rgb), 0.12);
+}
+
+.plan-confirm-btn {
+    padding: 0.35rem 0.75rem;
+    font: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.plan-confirm-btn:hover {
+    filter: brightness(1.05);
+}
+
+.plan-cancel-btn {
+    padding: 0.35rem 0.75rem;
+    font: inherit;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
 }
 
 /* 斜杠命令菜单 */
@@ -575,6 +749,72 @@
 
 .slash-result-error {
     color: var(--error, #c75050);
+}
+
+/* /plan 行内文字行容器 */
+.input-text-row {
+    position: relative;
+}
+
+/* /plan 行内标签：绝对定位在首行左侧，text-indent 让首行缩进，换行回左边 */
+.plan-tag-inline {
+    position: absolute;
+    left: 0;
+    top: 3px;
+    z-index: 1;
+}
+
+/* /plan 标签（旧：独立顶部行，保留兼容） */
+.plan-tag-bar {
+    display: flex;
+    align-items: center;
+    padding: 0 0 var(--space-xs) 0;
+}
+
+.plan-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px 2px 6px;
+    font-size: 0.86rem;
+    font-weight: 400;
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.10);
+    border: none;
+    border-radius: 3px;
+    line-height: 1.4;
+}
+
+.plan-tag svg {
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.plan-tag-label {
+    white-space: nowrap;
+}
+
+.plan-tag-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-left: 2px;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
+}
+
+.plan-tag-remove:hover {
+    color: var(--coral, #c44);
+    background: rgba(var(--accent-rgb), 0.08);
 }
 
 /* 输入框容器（双行布局） */

@@ -28,12 +28,14 @@ export function WorkTab() {
     setHomeFolder(folder);
     useSettingsStore.setState({ homeFolder: folder });
     await autoSaveConfig({ desk: { home_folder: folder } });
+    platform?.settingsChanged?.('work-folder-changed', { home_folder: folder });
   };
 
   const clearHomeFolder = async () => {
     setHomeFolder('');
     useSettingsStore.setState({ homeFolder: null });
     await autoSaveConfig({ desk: { home_folder: '' } });
+    platform?.settingsChanged?.('work-folder-changed', { home_folder: '' });
   };
 
   const toggleHeartbeat = async (on: boolean) => {

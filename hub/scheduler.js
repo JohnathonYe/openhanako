@@ -99,6 +99,9 @@ export class Scheduler {
       onDeskChanged: (affectedDir) => {
         this._hub.eventBus.emit({ type: "desk_changed", path: affectedDir || null }, null);
       },
+      onJianUpdated: (content) => {
+        this._hub.eventBus.emit({ type: "jian_update", content: content ?? null }, null);
+      },
       onJianExecuting: (active) => {
         this._hub.eventBus.emit({ type: "jian_executing", active }, null);
       },

@@ -101,7 +101,7 @@ function seedDefaultAgent(agentsDir, productDir) {
 }
 
 /**
- * 同步 skills2set/ → 目标 skills 目录（覆盖已有文件）
+ * 同步 skills2set/ → 目标 skills 目录（覆盖已有文件，删除源中已移除的内置技能）
  * 供 ensureFirstRun 与 engine.init 复用，确保每次启动都用到最新的内置技能
  * @param {string} srcDir - skills2set 目录（项目内）
  * @param {string} dstDir - ~/.hanako/skills 或 HANA_HOME/skills
@@ -109,6 +109,7 @@ function seedDefaultAgent(agentsDir, productDir) {
 export function syncSkills(srcDir, dstDir) {
   fs.mkdirSync(dstDir, { recursive: true });
 
+  const srcNames = new Set();
   const entries = fs.readdirSync(srcDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
@@ -116,11 +117,22 @@ export function syncSkills(srcDir, dstDir) {
     const skillSrc = path.join(srcDir, entry.name);
     const skillDst = path.join(dstDir, entry.name);
 
-    // 只要源里有 SKILL.md 就同步整个目录
     if (!fs.existsSync(path.join(skillSrc, "SKILL.md"))) continue;
 
+    srcNames.add(entry.name);
     copyDirSync(skillSrc, skillDst);
   }
+
+  // 清理目标目录中源已移除的内置技能（仅删带 SKILL.md 的目录，不动 learned-skills 等）
+  try {
+    for (const entry of fs.readdirSync(dstDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      if (srcNames.has(entry.name)) continue;
+      const candidate = path.join(dstDir, entry.name);
+      if (!fs.existsSync(path.join(candidate, "SKILL.md"))) continue;
+      fs.rmSync(candidate, { recursive: true, force: true });
+    }
+  } catch {}
 }
 
 /** 递归复制目录（覆盖已有文件） */

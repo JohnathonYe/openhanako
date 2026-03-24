@@ -12,6 +12,8 @@ import type { ChatMessage, ContentBlock, ChatListItem } from '../stores/chat-typ
 import { useStore } from '../stores';
 import { renderMarkdown } from '../utils/markdown';
 import { cleanMoodText } from '../utils/message-parser';
+import type { Agent } from '../types';
+import { buildAssistantAgentMeta, agentYuanFromSessionPath } from '../utils/session-agent-display';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- 流式消息 handle(msg) 接收动态 JSON */
 
@@ -75,7 +77,8 @@ class StreamBufferManager {
     if (!session) return; // session 未初始化（可能还没 loadMessages）
 
     const id = `stream-${Date.now()}`;
-    const msg: ChatMessage = { id, role: 'assistant', blocks: [] };
+    const agentMeta = buildAssistantAgentMeta(buf.sessionPath, store.agents as Agent[]);
+    const msg: ChatMessage = { id, role: 'assistant', blocks: [], ...agentMeta };
     store.appendItem(buf.sessionPath, { type: 'message', data: msg });
   }
 
@@ -101,7 +104,7 @@ class StreamBufferManager {
     }
 
     const store = useStore.getState();
-    store.updateLastMessage(buf.sessionPath, (msg) => {
+    store.updateLastAssistantMessage(buf.sessionPath, (msg) => {
       const blocks = [...(msg.blocks || [])];
 
       // ── Thinking ──
@@ -231,7 +234,7 @@ class StreamBufferManager {
         this.ensureMessage(buf);
         // 工具事件频率低，直接写 store
         this.flush(buf); // 先 flush 文本
-        useStore.getState().updateLastMessage(sessionPath, (m) => {
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => {
           const blocks = [...(m.blocks || [])];
           // 找最后一个 tool_group 或创建新的
           let lastTg = blocks.length - 1;
@@ -258,7 +261,7 @@ class StreamBufferManager {
         break;
 
       case 'tool_end':
-        useStore.getState().updateLastMessage(sessionPath, (m) => {
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => {
           const blocks = [...(m.blocks || [])];
           // 从后往前找含该 tool 名且未 done 的
           for (let i = blocks.length - 1; i >= 0; i--) {
@@ -280,7 +283,7 @@ class StreamBufferManager {
       case 'file_output':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), { type: 'file_output', filePath: msg.filePath, label: msg.label, ext: msg.ext }],
         }));
@@ -289,7 +292,7 @@ class StreamBufferManager {
       case 'artifact':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), {
             type: 'artifact',
@@ -305,7 +308,7 @@ class StreamBufferManager {
       case 'browser_screenshot':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), { type: 'browser_screenshot', base64: msg.base64, mimeType: msg.mimeType }],
         }));
@@ -314,7 +317,7 @@ class StreamBufferManager {
       case 'skill_activated':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), { type: 'skill', skillName: msg.skillName, skillFilePath: msg.skillFilePath }],
         }));
@@ -323,7 +326,7 @@ class StreamBufferManager {
       case 'cron_confirmation':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), { type: 'cron_confirm', confirmId: msg.confirmId, jobData: msg.jobData, status: 'pending' as const }],
         }));
@@ -332,7 +335,7 @@ class StreamBufferManager {
       case 'settings_confirmation':
         this.ensureMessage(buf);
         this.flush(buf);
-        useStore.getState().updateLastMessage(sessionPath, (m) => ({
+        useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
           ...m,
           blocks: [...(m.blocks || []), {
             type: 'settings_confirm' as const,
@@ -351,18 +354,19 @@ class StreamBufferManager {
         }));
         break;
 
-      case 'compaction_start':
-        useStore.getState().appendItem(sessionPath, {
+      case 'compaction_start': {
+        const st = useStore.getState();
+        const yuan = agentYuanFromSessionPath(sessionPath, st.agents as Agent[]);
+        st.appendItem(sessionPath, {
           type: 'compaction',
           id: `compaction-${Date.now()}`,
-          yuan: useStore.getState().agentYuan || 'hanako',
+          yuan,
         });
         break;
+      }
 
       case 'compaction_end':
-        // 移除 compaction notice（遍历找到最后一个 compaction item 删掉）
-        useStore.getState().updateLastMessage(sessionPath, m => m); // no-op，触发重渲染
-        // TODO: 可以加一个 removeLastCompaction action
+        useStore.getState().removeLastCompaction(sessionPath);
         break;
 
       case 'turn_end':

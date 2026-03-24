@@ -193,6 +193,7 @@
     position: absolute;
     top: 4px;
     right: 4px;
+    z-index: 2;
     background: var(--hana-bg);
     border: 1px solid var(--hana-border);
     border-radius: 4px;
@@ -690,6 +691,56 @@
     padding: 0.2rem 0;
     line-height: 1.5;
     max-width: 400px;
+}
+
+.toolIndicatorExpand {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-width: 0;
+}
+
+.toolIndicatorSummary {
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toolIndicatorSummary::-webkit-details-marker {
+    display: none;
+}
+
+.toolIndicatorSummary::marker {
+    content: '';
+}
+
+.toolExpandChevron {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    line-height: 1;
+    transition: transform 0.15s ease;
+}
+
+.toolIndicatorExpand[open] .toolExpandChevron {
+    transform: rotate(90deg);
+}
+
+.toolDetailFull {
+    margin: 0.35rem 0 0 0;
+    padding: 0.45rem 0.55rem;
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: var(--overlay-subtle);
+    border-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: min(40vh, 16rem);
+    overflow: auto;
 }
 
 .toolGroupSingle .toolIndicator {

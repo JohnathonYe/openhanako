@@ -272,12 +272,14 @@ export class ConfigCoordinator {
 
   // ── 操作电脑（ON = 全部工具解锁，OFF = 只读 + 无浏览器控制）──
 
-  setPlanMode(enabled, allBuiltInTools) {
-    this._planMode = !!enabled;
-    const session = this._d.getSession();
-    if (!session) return;
-    const agent = this._d.getAgent();
-
+  /**
+   * 将当前 Plan Mode 规则应用到任意 Pi session（焦点 session 或按 path 取到的 session）
+   * @param {object|null} session
+   * @param {object} agent
+   * @param {Array<{ name: string }>} allBuiltInTools
+   */
+  applyPlanModeToolsToSession(session, agent, allBuiltInTools) {
+    if (!session?.setActiveToolsByName) return;
     if (this._planMode) {
       const allNames = allBuiltInTools.map(t => t.name);
       const customNames = (agent.tools || []).map(t => t.name);
@@ -288,6 +290,13 @@ export class ConfigCoordinator {
         .filter((name) => !PLAN_MODE_ONLY_CUSTOM_TOOLS.includes(name));
       session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames]);
     }
+  }
+
+  setPlanMode(enabled, allBuiltInTools) {
+    this._planMode = !!enabled;
+    const session = this._d.getSession();
+    const agent = this._d.getAgent();
+    this.applyPlanModeToolsToSession(session, agent, allBuiltInTools);
 
     this._d.emitEvent({ type: "plan_mode", enabled: this._planMode }, null);
     this._d.emitDevLog(`操作电脑: ${this._planMode ? "ON (全部工具)" : "OFF (只读)"}`, "info");

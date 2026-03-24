@@ -12,6 +12,7 @@ import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
 import { buildItemsFromHistory } from '../utils/history-builder';
 import { loadAvatars as loadAvatarsAction, clearChat as clearChatAction } from './agent-actions';
 import { loadDeskFiles } from './desk-actions';
+import type { Agent } from '../types';
 
 // ── 防竞争计数器 ──
 
@@ -29,7 +30,10 @@ export async function loadMessages(forPath?: string): Promise<void> {
     const data = await res.json();
     // 总是更新 todos（包括清空），避免残留上一个 session 的 todo
     useStore.setState({ sessionTodos: data.todos || [] });
-    const items = buildItemsFromHistory(data);
+    const items = buildItemsFromHistory(data, {
+      sessionPath: targetPath,
+      agents: useStore.getState().agents as Agent[],
+    });
     if (items.length > 0) {
       useStore.getState().initSession(targetPath, items, data.hasMore ?? false);
       if (targetPath === useStore.getState().currentSessionPath) {
@@ -124,17 +128,15 @@ export async function switchSession(path: string): Promise<void> {
       browserRunning: !!data.browserRunning,
       browserUrl: data.browserUrl || null,
       browserThumbnail: data.browserRunning ? state.browserThumbnail : null,
+      planFlowPhase: 'idle',
     });
 
     // renderBrowserCard — no-op (browser card rendering handled by React)
 
     // updateFolderButton — no-op (React-driven)
 
-    // 如果 store 中没有该 session 的消息数据，加载之
-    const hasData = !!useStore.getState().chatSessions?.[path];
-    if (!hasData) {
-      await loadMessages(path);
-    }
+    // 总是加载该 session 的消息和 todos，确保 To Do 与当前对话框一致
+    await loadMessages(path);
 
     // 加载 desk files（显式传入切换后 session 的 cwd，覆盖 store 中旧的 deskBasePath）
     loadDeskFiles('', data.cwd || undefined);
@@ -174,6 +176,8 @@ export async function createNewSession(): Promise<void> {
     browserRunning: false,
     browserUrl: null,
     browserThumbnail: null,
+    planFlowPhase: 'idle',
+    sessionTodos: [],
   });
 
   // 重置 context ring
@@ -224,6 +228,8 @@ export async function ensureSession(): Promise<boolean> {
       pendingNewSession: false,
       selectedFolder: null,
       selectedAgentId: null,
+      // 新会话首条消息前仍为 welcome；创建成功后必须进入聊天区，否则 ChatArea 整树不渲染，乐观消息与流式回复均不可见
+      welcomeVisible: false,
     };
 
     if (data.agentId) {

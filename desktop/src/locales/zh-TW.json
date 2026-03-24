@@ -134,9 +134,28 @@
     "diaryBusy": "正在寫日記...",
     "diaryDone": "日記寫入完成，已儲存到 diary 資料夾",
     "diaryFailed": "日記寫入失敗",
+    "diaryTimeout": "日記產生逾時，請查看日誌或稍後再試",
     "xing": "反省當前對話",
     "compact": "壓縮上下文",
-    "compactBusy": "正在壓縮..."
+    "compactBusy": "正在壓縮...",
+    "plan": "用待辦拆解任務（確認後執行）",
+    "planTag": "/plan"
+  },
+  "plan": {
+    "draftPrompt": "【/plan 僅規劃】\n使用者任務：\n{task}\n\n你必須使用 **todo** 工具將任務拆成可執行步驟。在使用者於介面確認計畫之前，不要呼叫 todo 以外的任何工具（不要讀寫檔案、執行指令、網路搜尋等）。完成新增即可，使用者能在介面看到待辦，無需重複說明。",
+    "draftPromptEmpty": "（使用者未在 /plan 後輸入任務，請依對話上文或向使用者追問）",
+    "panelTitle": "計畫確認",
+    "confirmHint": "可編輯未完成項或追加步驟，確認後助手將依序執行，並在每步完成後用 todo 工具標記完成。",
+    "stepPlaceholder": "步驟說明",
+    "addStep": "+ 新增步驟",
+    "confirmExecute": "確認執行",
+    "cancelPlan": "取消",
+    "expandPanel": "展開",
+    "collapse": "收起",
+    "emptySteps": "請至少保留一個待辦",
+    "clearTodos": "清空",
+    "executeUserBody": "使用者已確認以下計畫。請嚴格依序執行；每完成一步必須呼叫 todo 工具將對應項標記為已完成（toggle）；未完成前不要標記為完成。若某步無法完成請說明原因。",
+    "optimisticConfirm": "✓ 已確認計畫"
   },
   "welcome": {
     "messages": [
@@ -304,7 +323,8 @@
     "failed": "⚠ 好像出了點問題 · {n} 步",
     "countWithFail": "{total} 個工具（{fail} 個失敗）",
     "count": "{n} 個工具",
-    "running": "{n} 個工具運行中"
+    "running": "{n} 個工具運行中",
+    "expandDetail": "點擊展開查看完整參數"
   },
   "tool": {
     "web_search": {
@@ -658,6 +678,8 @@
       "compiled": "當下記憶",
       "compiledHint": "助手記住的關於你的，重要的與近期的事",
       "compiledView": "查看當下記憶",
+      "diaryAutoBoundary": "自動日記",
+      "diaryAutoBoundaryHint": "每天在邏輯日分界（預設凌晨 4:00）自動撰寫上一完整日的日記，並在完成後整理記憶（含從日記摘要入庫）。",
       "compiledEmpty": "還沒有編譯過記憶",
       "compiledClear": "清空",
       "compiledCleared": "編譯記憶已清空",
@@ -926,6 +948,17 @@
   },
   "activity": {
     "title": "助手活動",
+    "runNow": "立即開始",
+    "runNowBusy": "執行中…",
+    "patrolNow": "立即巡檢",
+    "patrolIntervalHint": "自動巡檢間隔：{text}",
+    "patrolCooldownHint": "可再次立即巡檢：{text}",
+    "intervalMinutesFmt": "{n} 分鐘",
+    "intervalHoursFmt": "{n} 小時",
+    "intervalHoursMinutesFmt": "{hours} 小時 {minutes} 分鐘",
+    "cooldownHmsFmt": "{hours} 小時 {minutes} 分",
+    "cooldownMmsFmt": "{minutes} 分 {seconds} 秒",
+    "cooldownSecondsFmt": "{seconds} 秒",
     "empty": "暫時沒有活動記錄，日常巡檢或定時任務執行後會出現在這裡",
     "back": "返回",
     "heartbeat": "日常巡檢",
@@ -984,7 +1017,17 @@
       "nameDescShort": "名稱↓",
       "sizeShort": "大小",
       "typeShort": "類型"
-    }
+    },
+    "rules": "必讀規則",
+    "rulesAdd": "新增規則",
+    "rulesEdit": "編輯",
+    "rulesDelete": "刪除",
+    "rulesSave": "儲存",
+    "rulesCancel": "取消",
+    "rulesNamePlaceholder": "規則名稱（如 coding-style）",
+    "rulesContentPlaceholder": "規則內容，LLM 在每次工作前都會讀取…",
+    "rulesEditing": "編輯中…",
+    "rulesCreating": "新建中…"
   },
   "window": {
     "minimize": "最小化",
@@ -1020,6 +1063,7 @@
     "invalidJson": "請求本體必須是 JSON 物件",
     "sessionNotFound": "Session 檔案不存在",
     "stillStreaming": "{name} 還在說話，請等一下",
+    "diaryBusy": "已有日記任務在進行",
     "agentNameEmpty": "助手名字不能為空",
     "agentIdInvalid": "助手 ID 包含非法字元",
     "agentAlreadyExists": "助手 \"{id}\" 已存在",
@@ -1236,6 +1280,7 @@
     "compatConfigCorrupted": "config.yaml 損壞 ({msg})，已從範本重建",
     "compatConfigBackedUp": "config.yaml 損壞 ({msg})，已備份為 {backup}",
     "compatFactsCorrupted": "facts.db 損壞已備份，將重建空資料庫",
+    "compatNativeModuleMismatch": "better-sqlite3 原生模組與目前行程架構或 Node ABI 不符（例如在 Apple 晶片上編譯了 arm64 卻用 Intel 版 Electron 執行）。請在專案根目錄執行 {hint}。",
     "defaultChannelName": "工作群",
     "defaultChannelDesc": "工作協調頻道，所有成員在這裡溝通日常事務。",
     "memorySearchLabel": "搜尋記憶",

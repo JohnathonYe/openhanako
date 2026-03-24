@@ -62,6 +62,9 @@ console.log("[server] ① ensureFirstRun...");
 ensureFirstRun(hanakoHome, productDir);
 console.log("[server] ① ensureFirstRun 完成");
 
+// 在 engine.init 之前加载默认语言，以便兼容性检查（如 facts-db）中的 t() 能取到文案
+loadLocale("zh");
+
 // ── 初始化 Debug 日志 ──
 const dlog = initDebugLog(path.join(hanakoHome, "logs"));
 

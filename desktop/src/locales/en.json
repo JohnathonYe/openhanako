@@ -155,9 +155,28 @@
     "diaryBusy": "Writing diary...",
     "diaryDone": "Diary saved to diary folder",
     "diaryFailed": "Failed to write diary",
+    "diaryTimeout": "Diary generation timed out. Check logs or try again later.",
     "xing": "Reflect on this conversation",
     "compact": "Compact context",
-    "compactBusy": "Compacting..."
+    "compactBusy": "Compacting...",
+    "plan": "Plan with todos (confirm before run)",
+    "planTag": "/plan"
+  },
+  "plan": {
+    "draftPrompt": "[/plan — planning only]\nTask:\n{task}\n\nYou MUST use the **todo** tool to break the task into steps. Until the user confirms the plan in the UI, do not call any tool other than todo (no read/write files, shell, web search, etc.). Even if the task is trivial, you may only add todos and must not execute it yet. After adding, end the turn immediately. Do not output any natural-language reply, do not say a todo was added, do not summarize, and do not promise to execute later. The user will see the plan confirmation in the UI.",
+    "draftPromptEmpty": "(The user did not type a task after /plan; use prior context or ask what to plan.)",
+    "panelTitle": "Confirm plan",
+    "confirmHint": "Edit unfinished items or add steps. After you confirm, the assistant will execute in order and mark each todo done when finished.",
+    "stepPlaceholder": "Step",
+    "addStep": "+ Add step",
+    "confirmExecute": "Confirm & run",
+    "cancelPlan": "Cancel",
+    "expandPanel": "Expand",
+    "collapse": "Collapse",
+    "emptySteps": "Keep at least one step",
+    "clearTodos": "Clear",
+    "executeUserBody": "The user confirmed the plan below. Execute in order. You MUST use the todo tool to mark each item completed (toggle) when that step is finished; do not mark done prematurely. If a step cannot be completed, explain why.",
+    "optimisticConfirm": "✓ Plan confirmed"
   },
   "welcome": {
     "messages": [
@@ -325,7 +344,8 @@
     "failed": "⚠ Something seems off · {n} steps",
     "countWithFail": "{total} tools ({fail} failed)",
     "count": "{n} tools",
-    "running": "{n} tools running"
+    "running": "{n} tools running",
+    "expandDetail": "Click to expand full parameters"
   },
   "tool": {
     "web_search": {
@@ -701,6 +721,8 @@
       "compiled": "Current Memory",
       "compiledHint": "What the assistant remembers about you — important and recent things",
       "compiledView": "View Current Memory",
+      "diaryAutoBoundary": "Auto diary",
+      "diaryAutoBoundaryHint": "Each day at the logical day boundary (default 4:00), write the previous full day's diary and then run memory maintenance (including facts extracted from the diary).",
       "compiledEmpty": "No compiled memories yet",
       "compiledClear": "Clear",
       "compiledCleared": "Compiled memory cleared",
@@ -988,6 +1010,15 @@
     "title": "Activity",
     "runNow": "Start now",
     "runNowBusy": "Running…",
+    "patrolNow": "Patrol now",
+    "patrolIntervalHint": "Auto patrol about every {text}",
+    "patrolCooldownHint": "Immediate patrol again in {text}",
+    "intervalMinutesFmt": "{n} min",
+    "intervalHoursFmt": "{n} h",
+    "intervalHoursMinutesFmt": "{hours} h {minutes} min",
+    "cooldownHmsFmt": "{hours} h {minutes} min",
+    "cooldownMmsFmt": "{minutes} min {seconds} s",
+    "cooldownSecondsFmt": "{seconds} s",
     "empty": "No activity yet. Patrol runs and scheduled tasks will appear here.",
     "back": "Back",
     "heartbeat": "Routine patrol",
@@ -1046,7 +1077,17 @@
       "nameDescShort": "Name↓",
       "sizeShort": "Size",
       "typeShort": "Type"
-    }
+    },
+    "rules": "Required Rules",
+    "rulesAdd": "Add Rule",
+    "rulesEdit": "Edit",
+    "rulesDelete": "Delete",
+    "rulesSave": "Save",
+    "rulesCancel": "Cancel",
+    "rulesNamePlaceholder": "Rule name (e.g. coding-style)",
+    "rulesContentPlaceholder": "Rule content. The LLM reads all rules before every task…",
+    "rulesEditing": "Editing…",
+    "rulesCreating": "Creating…"
   },
   "window": {
     "minimize": "Minimize",
@@ -1082,6 +1123,7 @@
     "invalidJson": "Request body must be a JSON object",
     "sessionNotFound": "Session file not found",
     "stillStreaming": "{name} is still responding, please wait",
+    "diaryBusy": "A diary task is already running",
     "agentNameEmpty": "Agent name cannot be empty",
     "agentIdInvalid": "Agent ID contains invalid characters",
     "agentAlreadyExists": "Agent \"{id}\" already exists",
@@ -1299,6 +1341,7 @@
     "compatConfigCorrupted": "config.yaml corrupted ({msg}), rebuilt from template",
     "compatConfigBackedUp": "config.yaml corrupted ({msg}), backed up as {backup}",
     "compatFactsCorrupted": "facts.db corrupted and backed up, will rebuild empty database",
+    "compatNativeModuleMismatch": "better-sqlite3 native module does not match this process architecture or Node ABI (e.g. arm64 build with x64 Electron). From the project root run: {hint}",
     "defaultChannelName": "Crew",
     "defaultChannelDesc": "Work coordination channel for daily tasks.",
     "memorySearchLabel": "Search Memory",

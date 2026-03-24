@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../stores';
 import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
-import { formatSessionDate, injectCopyButtons, parseMoodFromContent } from '../utils/format';
+import {
+  formatSessionDate,
+  formatPatrolCooldownMs,
+  formatPatrolIntervalMinutes,
+  injectCopyButtons,
+  parseMoodFromContent,
+} from '../utils/format';
 import { yuanFallbackAvatar } from '../utils/agent-helpers';
 import { getMd } from '../utils/markdown';
 import fp from './FloatingPanels.module.css';
@@ -35,6 +41,11 @@ interface DetailState {
   messages: DetailMessage[];
 }
 
+interface PatrolStatusState {
+  remainingMs: number;
+  heartbeatIntervalMinutes: number;
+}
+
 export function ActivityPanel() {
   const activePanel = useStore(s => s.activePanel);
   const activities = useStore(s => s.activities) as ActivityItem[];
@@ -45,7 +56,26 @@ export function ActivityPanel() {
 
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [hbEnabled, setHbEnabled] = useState(true);
+  const [patrolStatus, setPatrolStatus] = useState<PatrolStatusState | null>(null);
+  const [patrolBusy, setPatrolBusy] = useState(false);
   const t = window.t ?? ((p: string) => p);
+
+  const fetchPatrolStatus = useCallback(async () => {
+    try {
+      const r = await hanaFetch('/api/desk/heartbeat');
+      const data = await r.json();
+      if (data.error) {
+        setPatrolStatus(null);
+        return;
+      }
+      setPatrolStatus({
+        remainingMs: typeof data.remainingMs === 'number' ? data.remainingMs : 0,
+        heartbeatIntervalMinutes: typeof data.heartbeatIntervalMinutes === 'number' ? data.heartbeatIntervalMinutes : 17,
+      });
+    } catch {
+      setPatrolStatus(null);
+    }
+  }, []);
 
   // 打开面板时加载活动 + 巡检状态
   useEffect(() => {
@@ -58,9 +88,22 @@ export function ActivityPanel() {
         .then(r => r.json())
         .then(data => setHbEnabled(data.desk?.heartbeat_enabled !== false))
         .catch(err => console.warn('[activity] fetch config failed:', err));
+      fetchPatrolStatus();
       setDetail(null);
     }
-  }, [activePanel, setActivities]);
+  }, [activePanel, setActivities, fetchPatrolStatus]);
+
+  // 立即巡检冷却倒计时（本地递减）
+  useEffect(() => {
+    if (!patrolStatus || patrolStatus.remainingMs <= 0) return;
+    const id = window.setInterval(() => {
+      setPatrolStatus(prev => {
+        if (!prev || prev.remainingMs <= 0) return prev;
+        return { ...prev, remainingMs: Math.max(0, prev.remainingMs - 1000) };
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [!!patrolStatus?.remainingMs]);
 
   const toggleHeartbeat = useCallback(async () => {
     const next = !hbEnabled;
@@ -75,6 +118,27 @@ export function ActivityPanel() {
       setHbEnabled(!next); // rollback
     }
   }, [hbEnabled]);
+
+  const triggerPatrolNow = useCallback(async () => {
+    if (patrolBusy || (patrolStatus?.remainingMs ?? 0) > 0) return;
+    setPatrolBusy(true);
+    try {
+      const r = await hanaFetch('/api/desk/heartbeat', { method: 'POST' });
+      const data = await r.json();
+      if (data.skipped && typeof data.remainingMs === 'number') {
+        setPatrolStatus(prev => ({
+          remainingMs: data.remainingMs,
+          heartbeatIntervalMinutes: prev?.heartbeatIntervalMinutes ?? 17,
+        }));
+      } else if (data.ok) {
+        await fetchPatrolStatus();
+      }
+    } catch {
+      await fetchPatrolStatus();
+    } finally {
+      setPatrolBusy(false);
+    }
+  }, [patrolBusy, patrolStatus?.remainingMs, fetchPatrolStatus]);
 
   const openSession = useCallback(async (activityId: string) => {
     try {
@@ -133,12 +197,25 @@ export function ActivityPanel() {
           <div id="activityListView" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className={fp.floatingPanelHeader}>
               <h2 className={fp.floatingPanelTitle}>{t('activity.title')}</h2>
-              <div className={fp.activityHbToggle}>
-                <span className="hana-toggle-label">{t('activity.heartbeat')}</span>
-                <button
-                  className={'hana-toggle' + (hbEnabled ? ' on' : '')}
-                  onClick={toggleHeartbeat}
-                />
+              <div className={fp.activityHeaderActions}>
+                <div className={fp.activityHbToggle}>
+                  <span className="hana-toggle-label">{t('activity.heartbeat')}</span>
+                  <button
+                    type="button"
+                    className={'hana-toggle' + (hbEnabled ? ' on' : '')}
+                    onClick={toggleHeartbeat}
+                  />
+                </div>
+                {patrolStatus && (
+                  <button
+                    type="button"
+                    className={fp.activityPatrolNow}
+                    disabled={patrolBusy || patrolStatus.remainingMs > 0}
+                    onClick={triggerPatrolNow}
+                  >
+                    {patrolBusy ? t('activity.runNowBusy') : t('activity.patrolNow')}
+                  </button>
+                )}
               </div>
               <button className={fp.floatingPanelClose} onClick={close}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -147,6 +224,22 @@ export function ActivityPanel() {
                 </svg>
               </button>
             </div>
+            {patrolStatus && (
+              <div className={fp.activityPatrolMeta}>
+                <span>
+                  {t('activity.patrolIntervalHint', {
+                    text: formatPatrolIntervalMinutes(patrolStatus.heartbeatIntervalMinutes, t as (k: string, v?: Record<string, string | number>) => string),
+                  })}
+                </span>
+                {patrolStatus.remainingMs > 0 && (
+                  <span className={fp.activityPatrolCooldown}>
+                    {t('activity.patrolCooldownHint', {
+                      text: formatPatrolCooldownMs(patrolStatus.remainingMs, t as (k: string, v?: Record<string, string | number>) => string),
+                    })}
+                  </span>
+                )}
+              </div>
+            )}
             <div className={fp.floatingPanelBody}>
               <div className={fp.activityCards} id="activityCards">
                 {activities.length === 0 ? (

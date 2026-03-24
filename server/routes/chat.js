@@ -17,8 +17,8 @@ import {
   resumeSessionStream,
 } from "../session-stream-store.js";
 
-/** tool_start 事件只广播这些 arg 字段，避免传输完整文件内容（同步维护：chat-render-shim.ts extractToolDetail） */
-const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "key", "value", "action", "type", "schedule", "prompt", "label"];
+/** tool_start 事件只广播这些 arg 字段，避免传输完整文件内容（同步维护：sessions.js、message-parser extractToolDetail） */
+const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "key", "value", "action", "type", "schedule", "prompt", "label", "text", "id"];
 
 /**
  * 从 Pi SDK 的 content 块中提取纯文本
@@ -33,6 +33,8 @@ function extractText(content) {
 }
 
 export default async function chatRoute(app, { engine, hub }) {
+  let _diaryWriteInFlight = false;
+
   let activeWsClients = 0;
   let disconnectAbortTimer = null;
   const DISCONNECT_ABORT_GRACE_MS = 15_000;
@@ -496,6 +498,54 @@ export default async function chatRoute(app, { engine, hub }) {
         return;
       }
 
+      if (msg.type === "diary_write") {
+        if (_diaryWriteInFlight) {
+          wsSend(ws, {
+            type: "diary_error",
+            message: t("error.diaryBusy") || "Diary job already running",
+            agentId: engine.currentAgentId,
+          });
+          return;
+        }
+        _diaryWriteInFlight = true;
+        const runAgentId = typeof msg.agentId === "string" && msg.agentId.trim()
+          ? msg.agentId.trim()
+          : engine.currentAgentId;
+        (async () => {
+          try {
+            const result = await engine.writeDiary({
+              agentId: msg.agentId || undefined,
+              onProgress: (phase) => {
+                broadcast({ type: "diary_progress", phase, agentId: runAgentId });
+              },
+            });
+            if (result.error) {
+              broadcast({
+                type: "diary_error",
+                message: result.error,
+                agentId: runAgentId,
+              });
+            } else {
+              broadcast({
+                type: "diary_done",
+                filePath: result.filePath,
+                logicalDate: result.logicalDate,
+                agentId: runAgentId,
+              });
+            }
+          } catch (err) {
+            broadcast({
+              type: "diary_error",
+              message: err.message || String(err),
+              agentId: runAgentId,
+            });
+          } finally {
+            _diaryWriteInFlight = false;
+          }
+        })();
+        return;
+      }
+
       if (msg.type === "steer" && msg.text) {
         debugLog()?.log("ws", `steer (${msg.text.length} chars)`);
         const steerPath = msg.sessionPath || engine.currentSessionPath;
@@ -582,12 +632,12 @@ export default async function chatRoute(app, { engine, hub }) {
           });
         } catch (err) {
           // Already compacted / Nothing to compact 不算错误
-          const msg = err.message || "";
-          if (msg.includes("Already compacted") || msg.includes("Nothing to compact")) {
+          const errMsg = err.message || "";
+          if (errMsg.includes("Already compacted") || errMsg.includes("Nothing to compact")) {
             broadcast({ type: "compaction_end" });
           } else {
             broadcast({ type: "compaction_end" });
-            wsSend(ws, { type: "error", message: t("error.compactFailed", { msg }) });
+            wsSend(ws, { type: "error", message: t("error.compactFailed", { msg: errMsg }) });
           }
         }
         return;
@@ -620,6 +670,10 @@ export default async function chatRoute(app, { engine, hub }) {
           promptText = t("error.viewImage");
         }
         debugLog()?.log("ws", `user message (${promptText.length} chars, ${msg.images?.length || 0} images)`);
+        if (msg.planDraft) {
+          const task = (promptText || "").trim();
+          promptText = t("plan.draftPrompt", { task: task || t("plan.draftPromptEmpty") });
+        }
         // Phase 2: 客户端可指定 sessionPath，否则用焦点 session
         const promptSessionPath = msg.sessionPath || engine.currentSessionPath;
         if (engine.isSessionStreaming(promptSessionPath)) {
@@ -635,7 +689,11 @@ export default async function chatRoute(app, { engine, hub }) {
           ss.titlePreview = "";
           beginSessionStream(ss);
           broadcast({ type: "status", isStreaming: true, sessionPath: promptSessionPath });
-          await hub.send(promptText, msg.images ? { images: msg.images, sessionPath: promptSessionPath } : { sessionPath: promptSessionPath });
+          await hub.send(promptText, {
+            images: msg.images,
+            sessionPath: promptSessionPath,
+            planDraft: !!msg.planDraft,
+          });
           broadcast({ type: "status", isStreaming: false, sessionPath: promptSessionPath });
         } catch (err) {
           if (!err.message?.includes("aborted")) {

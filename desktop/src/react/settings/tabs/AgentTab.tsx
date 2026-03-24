@@ -138,7 +138,7 @@ export function AgentTab() {
             input.click();
           }}
           onSetActive={(id) => switchToAgent(id)}
-          onDelete={() => window.dispatchEvent(new Event('hana-show-agent-delete'))}
+          onDelete={(agentId) => window.dispatchEvent(new CustomEvent('hana-show-agent-delete', { detail: { agentId } }))}
           onAdd={() => window.dispatchEvent(new Event('hana-show-agent-create'))}
         />
 

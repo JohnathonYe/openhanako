@@ -35,7 +35,7 @@ import { createNewSession, loadSessions } from './stores/session-actions';
 import { connectWebSocket } from './services/websocket';
 import { setStatus, loadModels } from './utils/ui-helpers';
 import { toSlash, baseName } from './utils/format';
-import { initJian, toggleJianSidebar } from './stores/desk-actions';
+import { initJian, loadDeskFiles, toggleJianSidebar } from './stores/desk-actions';
 import { initEditorEvents } from './stores/artifact-actions';
 import { WindowControls } from './components/WindowControls';
 import { ToastContainer } from './components/ToastContainer';
@@ -207,6 +207,13 @@ async function init(): Promise<void> {
         break;
       case 'font-changed':
         setSerifFont(data.serif);
+        break;
+      case 'work-folder-changed':
+        useStore.setState({
+          homeFolder: data?.home_folder || null,
+          selectedFolder: data?.home_folder || null,
+        });
+        loadDeskFiles('', data?.home_folder || undefined);
         break;
     }
   });

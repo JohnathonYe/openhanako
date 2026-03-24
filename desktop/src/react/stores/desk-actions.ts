@@ -51,6 +51,7 @@ export async function loadDeskFiles(subdir?: string, overrideDir?: string): Prom
     st.setDeskFiles(data.files || []);
     if (data.basePath) st.setDeskBasePath(data.basePath);
     loadJianContent();
+    loadDeskRules();
     updateDeskContextBtn();
   } catch (err) {
     console.error('[jian-desk] load failed:', err);
@@ -203,6 +204,75 @@ export async function deskRenameFile(oldName: string, newName: string): Promise<
     if (data.files) useStore.getState().setDeskFiles(data.files);
     return true;
   } catch (err) { console.error('[desk] rename failed:', err); return false; }
+}
+
+// ── 必读规则（.rules/*.md） ──
+
+export async function loadDeskRules(): Promise<void> {
+  const s = useStore.getState();
+  if (!s.serverPort) return;
+  try {
+    const params = new URLSearchParams();
+    if (s.deskBasePath) params.set('dir', s.deskBasePath);
+    const qs = params.toString() ? `?${params}` : '';
+    const res = await hanaFetch(`/api/desk/rules${qs}`);
+    const data = await res.json();
+    useStore.getState().setDeskRules(data.rules || []);
+  } catch (err) {
+    console.error('[desk-rules] load failed:', err);
+    useStore.getState().setDeskRules([]);
+  }
+}
+
+export async function createDeskRule(name: string, content: string): Promise<boolean> {
+  const s = useStore.getState();
+  try {
+    const res = await hanaFetch('/api/desk/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create', dir: s.deskBasePath || undefined, name, content }),
+    });
+    const data = await res.json();
+    if (data.ok) { await loadDeskRules(); return true; }
+    return false;
+  } catch (err) {
+    console.error('[desk-rules] create failed:', err);
+    return false;
+  }
+}
+
+export async function updateDeskRule(name: string, content: string): Promise<boolean> {
+  const s = useStore.getState();
+  try {
+    const res = await hanaFetch('/api/desk/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', dir: s.deskBasePath || undefined, name, content }),
+    });
+    const data = await res.json();
+    if (data.ok) { await loadDeskRules(); return true; }
+    return false;
+  } catch (err) {
+    console.error('[desk-rules] update failed:', err);
+    return false;
+  }
+}
+
+export async function removeDeskRule(name: string): Promise<boolean> {
+  const s = useStore.getState();
+  try {
+    const res = await hanaFetch('/api/desk/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove', dir: s.deskBasePath || undefined, name }),
+    });
+    const data = await res.json();
+    if (data.ok) { await loadDeskRules(); return true; }
+    return false;
+  } catch (err) {
+    console.error('[desk-rules] remove failed:', err);
+    return false;
+  }
 }
 
 // ── 状态工具 ──

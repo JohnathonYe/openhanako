@@ -208,12 +208,56 @@
     font-size: 0.78rem;
 }
 
+.activityHeaderActions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    margin-right: var(--space-sm);
+}
+
 .activityHbToggle {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-left: auto;
-    margin-right: var(--space-sm);
+}
+
+.activityPatrolNow {
+    font-size: 0.68rem;
+    font-family: inherit;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--overlay-medium);
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s, border-color 0.15s;
+}
+
+.activityPatrolNow:hover:not(:disabled) {
+    border-color: rgba(var(--accent-rgb), 0.45);
+}
+
+.activityPatrolNow:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.activityPatrolMeta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 6px var(--space-lg) 10px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--overlay-light);
+    line-height: 1.35;
+}
+
+.activityPatrolCooldown {
+    color: var(--text-muted);
 }
 
 .activityCards {

@@ -3,6 +3,7 @@
  *
  * Client → Server:
  *   { type: "prompt", text: "..." }
+ *   { type: "diary_write", agentId?: "..." }  — 长时生成日记（无 HTTP 超时）；完成用 diary_done / diary_error
  *   { type: "abort" }
  *   { type: "resume_stream", sessionPath: "...", streamId: "...", sinceSeq: 128 }  (按事件序号续传)
  *
@@ -19,6 +20,9 @@
  *   { type: "turn_end" }
  *   { type: "agent_switched", agentId: "...", agentName: "...", yuan: "...", sessionPath: "...", handoff?: { fromAgentId, fromAgentName, toAgentId, toAgentName, task } }  (handoff_service 转交后主助手与会话已切换)
  *   { type: "error", message: "..." }
+ *   { type: "diary_progress", phase: "writing"|"saving"|"memory_extract"|"memory_tick", agentId?: "..." }
+ *   { type: "diary_done", filePath: "...", logicalDate: "YYYY-MM-DD", agentId?: "..." }
+ *   { type: "diary_error", message: "...", agentId?: "..." }
  *   { type: "status", isStreaming: bool }
  *   { type: "session_title", title: "...", path: "..." }
  *   { type: "jian_update", content: "..." }

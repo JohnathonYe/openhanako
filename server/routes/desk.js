@@ -205,11 +205,29 @@ export default async function deskRoute(app, { engine, hub }) {
     return { logs: engine.getDevLogs() };
   });
 
-  /** 手动触发心跳巡检（调试用） */
+  /** 立即巡检状态：冷却剩余、自动巡检间隔（分钟） */
+  app.get("/api/desk/heartbeat", async () => {
+    const hb = hub?.scheduler?.heartbeat;
+    if (!hb) return { error: "Heartbeat not initialized" };
+    const st = hb.getManualTriggerStatus();
+    const heartbeatIntervalMinutes = engine.config?.desk?.heartbeat_interval ?? 17;
+    return { ...st, heartbeatIntervalMinutes };
+  });
+
+  /** 手动触发心跳巡检 */
   app.post("/api/desk/heartbeat", async () => {
     const hb = hub?.scheduler?.heartbeat;
     if (!hb) return { error: "Heartbeat not initialized" };
-    hb.triggerNow();
+    const ok = hb.triggerNow();
+    if (!ok) {
+      const st = hb.getManualTriggerStatus();
+      return {
+        ok: false,
+        skipped: true,
+        remainingMs: st.remainingMs,
+        cooldownMs: st.cooldownMs,
+      };
+    }
     return { ok: true, message: t("error.heartbeatTriggered") };
   });
 
@@ -479,6 +497,114 @@ export default async function deskRoute(app, { engine, hub }) {
       return { ok: true, content };
     } catch (err) {
       return { error: err.message };
+    }
+  });
+
+  // ════════════════════════════
+  //  必读规则（.rules/*.md）
+  // ════════════════════════════
+
+  /** 列出 .rules/*.md 文件 */
+  app.get("/api/desk/rules", async (req) => {
+    const dir = req.query.dir ? decodeURIComponent(req.query.dir) : engine.deskCwd;
+    if (!dir) return { rules: [] };
+    if (req.query.dir && !isApprovedDir(dir, engine)) return { error: t("error.dirNotAllowed") };
+    const rulesDir = path.join(dir, ".rules");
+    if (!fs.existsSync(rulesDir)) return { rules: [] };
+    try {
+      const entries = fs.readdirSync(rulesDir, { withFileTypes: true })
+        .filter(e => !e.isDirectory() && e.name.endsWith(".md"));
+      const rules = entries.map(e => {
+        const filePath = path.join(rulesDir, e.name);
+        const stat = fs.statSync(filePath);
+        let content = "";
+        try { content = fs.readFileSync(filePath, "utf-8"); } catch {}
+        return {
+          name: e.name,
+          size: stat.size,
+          mtime: stat.mtime.toISOString(),
+          content,
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+      return { rules };
+    } catch (err) {
+      return { error: err.message };
+    }
+  });
+
+  /** 操作 .rules/*.md 文件 */
+  app.post("/api/desk/rules", async (req, reply) => {
+    const baseDir = req.body?.dir || engine.deskCwd;
+    if (!baseDir) return { error: t("error.noWorkspace") };
+    if (req.body?.dir && !isApprovedDir(baseDir, engine)) return { error: t("error.dirNotAllowed") };
+    const rulesDir = path.join(baseDir, ".rules");
+
+    const { action, name, content, oldName, newName } = req.body || {};
+
+    /** 规则变更后刷新 system prompt，使下次 LLM 调用立即生效 */
+    const refreshPrompt = () => {
+      try { engine.agent?.refreshSystemPrompt(); } catch {}
+    };
+
+    switch (action) {
+      case "create":
+      case "update": {
+        if (!name || content === undefined) {
+          reply.code(400);
+          return { error: "name and content required" };
+        }
+        const safeName = path.basename(name).replace(/[^\w\-. ]/g, "_");
+        const fileName = safeName.endsWith(".md") ? safeName : safeName + ".md";
+        fs.mkdirSync(rulesDir, { recursive: true });
+        const filePath = path.join(rulesDir, fileName);
+        if (!isInsidePath(filePath, rulesDir)) {
+          reply.code(403);
+          return { error: "invalid name" };
+        }
+        fs.writeFileSync(filePath, content, "utf-8");
+        refreshPrompt();
+        return { ok: true, name: fileName };
+      }
+
+      case "remove": {
+        if (!name) {
+          reply.code(400);
+          return { error: "name required" };
+        }
+        const fileName = path.basename(name);
+        const filePath = path.join(rulesDir, fileName);
+        if (!isInsidePath(filePath, rulesDir)) {
+          reply.code(403);
+          return { error: "invalid name" };
+        }
+        if (!fs.existsSync(filePath)) return { error: "not found" };
+        fs.unlinkSync(filePath);
+        refreshPrompt();
+        return { ok: true };
+      }
+
+      case "rename": {
+        if (!oldName || !newName) {
+          reply.code(400);
+          return { error: "oldName and newName required" };
+        }
+        const oldFile = path.join(rulesDir, path.basename(oldName));
+        const safeNew = path.basename(newName).replace(/[^\w\-. ]/g, "_");
+        const newFileName = safeNew.endsWith(".md") ? safeNew : safeNew + ".md";
+        const newFile = path.join(rulesDir, newFileName);
+        if (!isInsidePath(oldFile, rulesDir) || !isInsidePath(newFile, rulesDir)) {
+          reply.code(403);
+          return { error: "invalid name" };
+        }
+        if (!fs.existsSync(oldFile)) return { error: "not found" };
+        if (fs.existsSync(newFile)) return { error: "target already exists" };
+        fs.renameSync(oldFile, newFile);
+        refreshPrompt();
+        return { ok: true, name: newFileName };
+      }
+
+      default:
+        return { error: `unknown action: ${action}` };
     }
   });
 

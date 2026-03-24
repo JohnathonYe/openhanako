@@ -27,6 +27,7 @@ describe('session-slice', () => {
     expect(slice.pendingNewSession).toBe(false);
     expect(slice.memoryEnabled).toBe(true);
     expect(slice.sessionTodos).toEqual([]);
+    expect(slice.planFlowPhase).toBe('idle');
   });
 
   it('setSessionStream 添加 stream', () => {

@@ -155,9 +155,28 @@
     "diaryBusy": "正在写日记...",
     "diaryDone": "日记写入完成，已保存到 diary 文件夹",
     "diaryFailed": "日记写入失败",
+    "diaryTimeout": "日记生成超时，请查看日志或稍后重试",
     "xing": "反省当前对话",
     "compact": "压缩上下文",
-    "compactBusy": "正在压缩..."
+    "compactBusy": "正在压缩...",
+    "plan": "用待办拆解任务（确认后执行）",
+    "planTag": "/plan"
+  },
+  "plan": {
+    "draftPrompt": "【/plan 仅规划】\n用户任务：\n{task}\n\n你必须使用 **todo** 工具将任务拆成可执行步骤。在用户通过界面确认计划之前，不要调用除 todo 以外的任何工具（不要读文件、写文件、执行命令、联网搜索等）。如果任务超简单，也只能添加 todo，不能直接执行。添加完成后立即结束本轮，不要输出任何自然语言文本，不要说“已添加待办”、不要总结、不要承诺稍后执行。用户会在界面看到计划确认。",
+    "draftPromptEmpty": "（用户未在 /plan 后输入任务，请根据对话上文或向用户追问）",
+    "panelTitle": "计划确认",
+    "confirmHint": "可编辑未完成项或追加步骤，确认后助手将按序执行，并在每步完成后用 todo 工具标记完成。",
+    "stepPlaceholder": "步骤说明",
+    "addStep": "+ 添加步骤",
+    "confirmExecute": "确认执行",
+    "cancelPlan": "取消",
+    "expandPanel": "展开",
+    "collapse": "收起",
+    "emptySteps": "请至少保留一条待办",
+    "clearTodos": "清空",
+    "executeUserBody": "用户已确认以下计划。请严格按顺序执行；每完成一步必须调用 todo 工具将对应项标记为已完成（toggle）；未完成前不要标记为完成。若某步无法完成请说明原因。",
+    "optimisticConfirm": "✓ 已确认计划"
   },
   "welcome": {
     "messages": [
@@ -325,7 +344,8 @@
     "failed": "⚠ 好像出了点问题 · {n} 步",
     "countWithFail": "{total} 个工具（{fail} 个失败）",
     "count": "{n} 个工具",
-    "running": "{n} 个工具运行中"
+    "running": "{n} 个工具运行中",
+    "expandDetail": "点击展开查看完整参数"
   },
   "tool": {
     "web_search": {
@@ -701,6 +721,8 @@
       "compiled": "当下记忆",
       "compiledHint": "助手记住的关于你的，重要的与近期的事",
       "compiledView": "查看当下记忆",
+      "diaryAutoBoundary": "自动日记",
+      "diaryAutoBoundaryHint": "每天在逻辑日分界（默认凌晨 4:00）自动撰写上一完整日的日记，并在完成后整理记忆（含从日记摘要入库）",
       "compiledEmpty": "还没有编译过记忆",
       "compiledClear": "清空",
       "compiledCleared": "编译记忆已清空",
@@ -988,6 +1010,15 @@
     "title": "助手活动",
     "runNow": "立即开始",
     "runNowBusy": "执行中…",
+    "patrolNow": "立即巡检",
+    "patrolIntervalHint": "自动巡检间隔：{text}",
+    "patrolCooldownHint": "可再次立即巡检：{text}",
+    "intervalMinutesFmt": "{n} 分钟",
+    "intervalHoursFmt": "{n} 小时",
+    "intervalHoursMinutesFmt": "{hours} 小时 {minutes} 分钟",
+    "cooldownHmsFmt": "{hours} 小时 {minutes} 分",
+    "cooldownMmsFmt": "{minutes} 分 {seconds} 秒",
+    "cooldownSecondsFmt": "{seconds} 秒",
     "empty": "暂时没有活动记录，日常巡检或定时任务执行后会出现在这里",
     "back": "返回",
     "heartbeat": "日常巡检",
@@ -1046,7 +1077,17 @@
       "nameDescShort": "名称↓",
       "sizeShort": "大小",
       "typeShort": "类型"
-    }
+    },
+    "rules": "必读规则",
+    "rulesAdd": "新增规则",
+    "rulesEdit": "编辑",
+    "rulesDelete": "删除",
+    "rulesSave": "保存",
+    "rulesCancel": "取消",
+    "rulesNamePlaceholder": "规则名称（如 coding-style）",
+    "rulesContentPlaceholder": "规则内容，LLM 在每次工作前都会读取…",
+    "rulesEditing": "编辑中…",
+    "rulesCreating": "新建中…"
   },
   "window": {
     "minimize": "最小化",
@@ -1082,6 +1123,7 @@
     "invalidJson": "请求体必须是 JSON 对象",
     "sessionNotFound": "Session 文件不存在",
     "stillStreaming": "{name} 还在说话，请等一下",
+    "diaryBusy": "已有日记任务在进行",
     "agentNameEmpty": "助手名字不能为空",
     "agentIdInvalid": "助手 ID 包含非法字符",
     "agentAlreadyExists": "助手 \"{id}\" 已存在",
@@ -1299,6 +1341,7 @@
     "compatConfigCorrupted": "config.yaml 损坏 ({msg})，已从模板重建",
     "compatConfigBackedUp": "config.yaml 损坏 ({msg})，已备份为 {backup}",
     "compatFactsCorrupted": "facts.db 损坏已备份，将重建空库",
+    "compatNativeModuleMismatch": "better-sqlite3 原生模块与当前进程架构或 Node ABI 不匹配（例如在 Apple 芯片上编译了 arm64 却用 Intel 版 Electron 运行）。请在项目根目录执行 {hint}。",
     "defaultChannelName": "工作群",
     "defaultChannelDesc": "工作协调频道，所有成员在这里沟通日常事务。",
     "memorySearchLabel": "搜索记忆",

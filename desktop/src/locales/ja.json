@@ -134,9 +134,28 @@
     "diaryBusy": "日記を書いています...",
     "diaryDone": "日記を diary フォルダに保存しました",
     "diaryFailed": "日記の作成に失敗しました",
+    "diaryTimeout": "日記の生成がタイムアウトしました。ログを確認するか、後でもう一度お試しください。",
     "xing": "この会話を振り返る",
     "compact": "コンテキストを圧縮",
-    "compactBusy": "圧縮中..."
+    "compactBusy": "圧縮中...",
+    "plan": "ToDo で計画（確認後に実行）",
+    "planTag": "/plan"
+  },
+  "plan": {
+    "draftPrompt": "[/plan — 計画のみ]\nタスク:\n{task}\n\n**todo** ツールのみで手順に分解してください。ユーザーが UI で確認するまで、todo 以外のツールは呼ばないでください（ファイル読み書き・シェル・検索など）。追加完了後はそのままに。ユーザーが UI で見えるので、繰り返し説明不要。",
+    "draftPromptEmpty": "（/plan の後にタスクがありません。文脈を使うか確認してください）",
+    "panelTitle": "計画の確認",
+    "confirmHint": "未完了項目の編集や追加ができます。確認後、順に実行し、各ステップ完了時に todo で完了をマークします。",
+    "stepPlaceholder": "ステップ",
+    "addStep": "+ ステップを追加",
+    "confirmExecute": "確認して実行",
+    "cancelPlan": "キャンセル",
+    "expandPanel": "展開",
+    "collapse": "折りたたむ",
+    "emptySteps": "少なくとも 1 つのステップを残してください",
+    "clearTodos": "クリア",
+    "executeUserBody": "ユーザーが以下の計画を承認しました。順番に実行してください。各ステップが終わったら必ず todo で完了（toggle）を付けてください。早めに完了にしないでください。できない場合は理由を説明してください。",
+    "optimisticConfirm": "✓ 計画を確認しました"
   },
   "welcome": {
     "messages": [
@@ -304,7 +323,8 @@
     "failed": "⚠ 何かおかしいようです · {n} ステップ",
     "countWithFail": "{total} 個のツール（{fail} 個失敗）",
     "count": "{n} 個のツール",
-    "running": "{n} 個のツール実行中"
+    "running": "{n} 個のツール実行中",
+    "expandDetail": "クリックでパラメータ全文を表示"
   },
   "tool": {
     "web_search": {
@@ -658,6 +678,8 @@
       "compiled": "現在の記憶",
       "compiledHint": "アシスタントがあなたについて覚えていること。重要なことや最近のこと",
       "compiledView": "現在の記憶を表示",
+      "diaryAutoBoundary": "自動日記",
+      "diaryAutoBoundaryHint": "論理日の切り替わり（既定は午前4時）に、前日分の日記を自動作成し、記憶の整理（日記からの要約の取り込みを含む）を行います。",
       "compiledEmpty": "コンパイル済みの記憶はまだありません",
       "compiledClear": "クリア",
       "compiledCleared": "コンパイル済みの記憶をクリアしました",
@@ -926,6 +948,17 @@
   },
   "activity": {
     "title": "アクティビティ",
+    "runNow": "今すぐ",
+    "runNowBusy": "実行中…",
+    "patrolNow": "今すぐ巡回",
+    "patrolIntervalHint": "自動巡回の間隔：{text}",
+    "patrolCooldownHint": "次に今すぐ巡回できるまで：{text}",
+    "intervalMinutesFmt": "{n} 分",
+    "intervalHoursFmt": "{n} 時間",
+    "intervalHoursMinutesFmt": "{hours} 時間 {minutes} 分",
+    "cooldownHmsFmt": "{hours} 時間 {minutes} 分",
+    "cooldownMmsFmt": "{minutes} 分 {seconds} 秒",
+    "cooldownSecondsFmt": "{seconds} 秒",
     "empty": "アクティビティはまだありません。巡回やスケジュールタスクの実行結果がここに表示されます。",
     "back": "戻る",
     "heartbeat": "定期巡回",
@@ -984,7 +1017,17 @@
       "nameDescShort": "名前↓",
       "sizeShort": "サイズ",
       "typeShort": "タイプ"
-    }
+    },
+    "rules": "必読ルール",
+    "rulesAdd": "ルール追加",
+    "rulesEdit": "編集",
+    "rulesDelete": "削除",
+    "rulesSave": "保存",
+    "rulesCancel": "キャンセル",
+    "rulesNamePlaceholder": "ルール名（例: coding-style）",
+    "rulesContentPlaceholder": "ルール内容。LLMは毎回タスク前にすべてのルールを読みます…",
+    "rulesEditing": "編集中…",
+    "rulesCreating": "作成中…"
   },
   "window": {
     "minimize": "最小化",
@@ -1020,6 +1063,7 @@
     "invalidJson": "リクエストボディは JSON オブジェクトである必要があります",
     "sessionNotFound": "セッションファイルが見つかりません",
     "stillStreaming": "{name} はまだ応答中です。お待ちください",
+    "diaryBusy": "別の日記タスクが実行中です",
     "agentNameEmpty": "アシスタント名は空にできません",
     "agentIdInvalid": "アシスタント ID に不正な文字が含まれています",
     "agentAlreadyExists": "アシスタント \"{id}\" は既に存在します",
@@ -1236,6 +1280,7 @@
     "compatConfigCorrupted": "config.yaml が破損しています ({msg})。テンプレートから再構築しました",
     "compatConfigBackedUp": "config.yaml が破損しています ({msg})。{backup} としてバックアップしました",
     "compatFactsCorrupted": "facts.db が破損しバックアップしました。空のデータベースを再構築します",
+    "compatNativeModuleMismatch": "better-sqlite3 のネイティブモジュールが現在のプロセスアーキテクチャまたは Node ABI と一致しません（例: arm64 でビルドしたのに x64 の Electron で実行）。プロジェクトのルートで {hint} を実行してください。",
     "defaultChannelName": "ワークグループ",
     "defaultChannelDesc": "日常業務の調整チャンネル。全メンバーがここで連絡します。",
     "memorySearchLabel": "記憶検索",

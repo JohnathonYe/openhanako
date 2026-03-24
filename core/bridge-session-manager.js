@@ -20,6 +20,7 @@ import { debugLog } from "../lib/debug-log.js";
 import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 import { t, getLocale } from "../server/i18n.js";
+import { runWithToolInvocationContext } from "../lib/tools/tool-invocation-context.js";
 
 function getSteerPrefix() {
   const isZh = getLocale().startsWith("zh");
@@ -31,6 +32,7 @@ export class BridgeSessionManager {
    * @param {object} deps - 注入依赖（不持有 engine 引用）
    * @param {() => object} deps.getAgent - 主界面当前 agent（未配置 bridge.ownerAgentId 时用于 Bridge）
    * @param {(id: string) => object|null} deps.getAgentById
+   * @param {() => object[]} deps.getAllAgents - 全部已加载的 Agent 实例（合并 bridge 索引用）
    * @param {(ag: object) => object} deps.getSkillsForAgent - 与引擎 _getSkillsForAgent 一致
    * @param {() => import('./model-manager.js').ModelManager} deps.getModelManager
    * @param {() => object} deps.getResourceLoader
@@ -44,8 +46,8 @@ export class BridgeSessionManager {
     this._activeSessions = new Map();
   }
 
-  /** preferences.bridge.ownerAgentId 指定则用之，否则 getAgent() */
-  _resolveBridgeAgent() {
+  /** 全局默认 Bridge 助手：ownerAgentId 或主界面当前助手 */
+  _resolveBridgeGlobalAgent() {
     const prefs = this._deps.getPreferences();
     const id = prefs?.bridge?.ownerAgentId;
     if (id && typeof id === "string" && id.trim()) {
@@ -53,6 +55,81 @@ export class BridgeSessionManager {
       if (a) return a;
     }
     return this._deps.getAgent();
+  }
+
+  /**
+   * 某 sessionKey 对应的助手：优先 preferences.bridge.chatAgentBySession，否则全局 Bridge 助手。
+   * @param {string} [sessionKey]
+   */
+  resolveSessionAgent(sessionKey) {
+    if (!sessionKey) return this._resolveBridgeGlobalAgent();
+    const prefs = this._deps.getPreferences();
+    const map = prefs?.bridge?.chatAgentBySession;
+    if (map && typeof map === "object") {
+      const sid = map[sessionKey];
+      if (sid && typeof sid === "string" && sid.trim()) {
+        const a = this._deps.getAgentById(sid.trim());
+        if (a) return a;
+      }
+    }
+    return this._resolveBridgeGlobalAgent();
+  }
+
+  /** @param {string} sessionKey */
+  _resolveBridgeAgent(sessionKey) {
+    return this.resolveSessionAgent(sessionKey);
+  }
+
+  /** 合并各助手目录下的 bridge-sessions.json（桌面列表 / knownUsers） */
+  getMergedIndex() {
+    const agents = this._deps.getAllAgents?.() || [];
+    const merged = {};
+    for (const ag of agents) {
+      try {
+        const idx = this.readIndex(ag);
+        Object.assign(merged, idx);
+      } catch { /* ignore */ }
+    }
+    return merged;
+  }
+
+  /**
+   * 从任意助手索引中去掉某 session 的 JSONL 引用（保留元数据）
+   * @param {string} sessionKey
+   */
+  clearSessionEntry(sessionKey) {
+    const agents = this._deps.getAllAgents?.() || [];
+    for (const ag of agents) {
+      const index = this.readIndex(ag);
+      const raw = index[sessionKey];
+      if (raw == null) continue;
+      const entry = typeof raw === "string" ? {} : { ...raw };
+      delete entry.file;
+      index[sessionKey] = entry;
+      this.writeIndex(index, ag);
+      return;
+    }
+  }
+
+  /**
+   * 在所有助手中查找某 sessionKey 的 JSONL 绝对路径（跨 agent 继承用）
+   * @param {string} sessionKey
+   * @param {object} [excludeAgent] - 排除某个 agent（避免匹配自己）
+   * @returns {string|null}
+   */
+  findSessionFileAcrossAgents(sessionKey, excludeAgent) {
+    const agents = this._deps.getAllAgents?.() || [];
+    for (const ag of agents) {
+      if (excludeAgent && ag.id === excludeAgent.id) continue;
+      const idx = this.readIndex(ag);
+      const raw = idx[sessionKey];
+      if (raw == null) continue;
+      const file = typeof raw === "string" ? raw : raw?.file;
+      if (!file) continue;
+      const full = path.join(ag.sessionDir, "bridge", file);
+      if (fs.existsSync(full)) return full;
+    }
+    return null;
   }
 
   /** 活跃 bridge sessions（供 bridge-manager abort 用） */
@@ -73,7 +150,7 @@ export class BridgeSessionManager {
 
   /** bridge 索引文件路径 */
   _indexPath(agent) {
-    const a = agent || this._resolveBridgeAgent();
+    const a = agent || this._resolveBridgeGlobalAgent();
     return path.join(a.sessionDir, "bridge", "bridge-sessions.json");
   }
 
@@ -82,26 +159,30 @@ export class BridgeSessionManager {
    * （有 file 引用但 JSONL 文件已不存在的）
    */
   reconcile() {
-    const index = this.readIndex();
-    const bridgeDir = path.join(this._resolveBridgeAgent().sessionDir, "bridge");
-    let cleaned = 0;
-
-    for (const [sessionKey, raw] of Object.entries(index)) {
-      const entry = typeof raw === "string" ? { file: raw } : raw;
-      if (!entry.file) continue;
-      const fp = path.join(bridgeDir, entry.file);
-      if (!fs.existsSync(fp)) {
-        // 保留元数据（name/avatarUrl/userId），只删 file 引用
-        delete entry.file;
-        index[sessionKey] = entry;
-        cleaned++;
+    const agents = this._deps.getAllAgents?.() || [];
+    let total = 0;
+    for (const ag of agents) {
+      const index = this.readIndex(ag);
+      const bridgeDir = path.join(ag.sessionDir, "bridge");
+      let cleaned = 0;
+      for (const [sessionKey, raw] of Object.entries(index)) {
+        const entry = typeof raw === "string" ? { file: raw } : raw;
+        if (!entry.file) continue;
+        const fp = path.join(bridgeDir, entry.file);
+        if (!fs.existsSync(fp)) {
+          delete entry.file;
+          index[sessionKey] = entry;
+          cleaned++;
+        }
+      }
+      if (cleaned > 0) {
+        this.writeIndex(index, ag);
+        total += cleaned;
       }
     }
-
-    if (cleaned > 0) {
-      this.writeIndex(index);
-      console.log(`[bridge-session] reconcile: 清理 ${cleaned} 个孤儿 session 引用`);
-      debugLog()?.log("bridge", `reconcile: cleaned ${cleaned} orphan session refs`);
+    if (total > 0) {
+      console.log(`[bridge-session] reconcile: 清理 ${total} 个孤儿 session 引用`);
+      debugLog()?.log("bridge", `reconcile: cleaned ${total} orphan session refs`);
     }
   }
 
@@ -124,12 +205,13 @@ export class BridgeSessionManager {
    * @param {string} prompt - 格式化后的用户消息
    * @param {string} sessionKey - 会话标识（如 tg_dm_12345）
    * @param {object} [meta] - 元数据（name, avatarUrl, userId）
-   * @param {object} [opts] - { guest: boolean, contextTag?: string, onDelta? }
+   * @param {object} [opts] - { guest: boolean, contextTag?: string, onDelta?, isBridgeHandoffFollowup?: boolean }
    * @returns {Promise<string|null>} agent 的回复文本
    */
   async executeExternalMessage(prompt, sessionKey, meta, opts = {}) {
-    const agent =
-      (opts.agentId && this._deps.getAgentById?.(opts.agentId)) || this._resolveBridgeAgent();
+    // 必须每次从 preferences 解析，勿用 Hub 传入的 opts.agentId：私聊 pending 可能在 debounce
+    // 期间被用户改掉 Bridge 助手，若沿用缓存的 agentId 会仍用旧助手。
+    const agent = this._resolveBridgeAgent(sessionKey);
     const mm = this._deps.getModelManager();
     const bridgeDir = path.join(agent.sessionDir, "bridge");
     const subDir = opts.guest ? "guests" : "owner";
@@ -151,6 +233,23 @@ export class BridgeSessionManager {
           mgr = null;
         }
       }
+
+      // Handoff followup: inherit JSONL from previous agent so the new agent sees chat history
+      if (!mgr && opts.isBridgeHandoffFollowup) {
+        const inherited = this.findSessionFileAcrossAgents(sessionKey, agent);
+        if (inherited) {
+          try {
+            const dest = path.join(sessionDir, path.basename(inherited));
+            fs.copyFileSync(inherited, dest);
+            mgr = SessionManager.open(dest, sessionDir);
+            debugLog()?.log("bridge", `handoff: inherited session from ${inherited}`);
+          } catch (e) {
+            debugLog()?.warn("bridge", `handoff session inherit failed: ${e.message}`);
+            mgr = null;
+          }
+        }
+      }
+
       const homeCwd = this._deps.getHomeCwd() || process.cwd();
       if (!mgr) {
         mgr = SessionManager.create(homeCwd, sessionDir);
@@ -184,7 +283,7 @@ export class BridgeSessionManager {
           model: chatModel,
           thinkingLevel: "none",
           resourceLoader: tempResourceLoader,
-          settingsManager: this._createSettings(chatModel),
+          settingsManager: this._createSettings(chatModel, agent),
           streamFn: wrapStreamFnForInvokeXml(streamSimple),
         };
       } else {
@@ -230,7 +329,7 @@ export class BridgeSessionManager {
           resourceLoader: ownerResourceLoader,
           tools: bridgeTools,
           customTools: bridgeCustomTools,
-          settingsManager: this._createSettings(ownerModel),
+          settingsManager: this._createSettings(ownerModel, agent),
           streamFn: wrapStreamFnForInvokeXml(streamSimple),
         };
       }
@@ -260,7 +359,10 @@ export class BridgeSessionManager {
 
       try {
         const promptOpts = opts.images?.length ? { images: opts.images } : undefined;
-        await session.prompt(prompt, promptOpts);
+        await runWithToolInvocationContext(
+          { bridgeSessionKey: sessionKey },
+          () => session.prompt(prompt, promptOpts),
+        );
         if (!opts.guest) {
           const turnPath = session.sessionManager?.getSessionFile?.();
           const ticker = agent.memoryTicker;
@@ -271,8 +373,8 @@ export class BridgeSessionManager {
         this._activeSessions.delete(sessionKey);
       }
 
-      // handoff_service：与桌面主会话 turn_end 一样在本轮收尾后应用（Bridge 无 WS turn_end）
-      if (!opts.guest && this._deps.applyPendingHandoff) {
+      // handoff_service：与桌面主会话 turn_end 一样在本轮收尾后应用（Bridge 无 WS turn_end）；接棒续轮不再套一层
+      if (!opts.guest && !opts.isBridgeHandoffFollowup && this._deps.applyPendingHandoff) {
         await new Promise((r) => setTimeout(r, 0));
         try {
           await this._deps.applyPendingHandoff();
@@ -323,7 +425,8 @@ export class BridgeSessionManager {
    */
   injectMessage(sessionKey, text) {
     try {
-      const index = this.readIndex();
+      const agent = this._resolveBridgeAgent(sessionKey);
+      const index = this.readIndex(agent);
       const raw = index[sessionKey];
       const existingFile = typeof raw === "string" ? raw : raw?.file || null;
       if (!existingFile) {
@@ -331,7 +434,7 @@ export class BridgeSessionManager {
         return false;
       }
 
-      const bridgeDir = path.join(this._resolveBridgeAgent().sessionDir, "bridge");
+      const bridgeDir = path.join(agent.sessionDir, "bridge");
       const sessionPath = path.join(bridgeDir, existingFile);
       if (!fs.existsSync(sessionPath)) {
         console.warn(`[bridge-session] injectMessage: session 文件不存在: ${sessionPath}`);
@@ -353,9 +456,10 @@ export class BridgeSessionManager {
   }
 
   /** 创建 bridge 专用 settings：100k token 触发压缩 */
-  _createSettings(model) {
-    // 用户手动设置的 context 覆盖优先
-    const overrides = this._deps.getAgent?.()?.config?.models?.overrides;
+  _createSettings(model, configAgent) {
+    const ag = configAgent ?? this._deps.getAgent?.();
+    // 用户手动设置的 context 覆盖优先（须对应当前 Bridge 会话所用助手）
+    const overrides = ag?.config?.models?.overrides;
     const ov = model?.id && overrides?.[model.id];
     const contextWindow = ov?.context || model?.contextWindow || 200_000;
     return SettingsManager.inMemory({

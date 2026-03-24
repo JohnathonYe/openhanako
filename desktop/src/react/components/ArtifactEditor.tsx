@@ -32,6 +32,8 @@ import { tags } from '@lezer/highlight';
 export interface ArtifactEditorHandle {
   getView(): EditorView | null;
   focus(): void;
+  /** 同步获取当前内容（用于保存前确保拿到最新值） */
+  getValue(): string;
 }
 
 export interface ArtifactEditorProps {
@@ -39,6 +41,8 @@ export interface ArtifactEditorProps {
   filePath?: string;
   mode: 'markdown' | 'code' | 'text';
   language?: string | null;
+  /** 无 filePath 时可用：内容变更时回调，用于非文件类编辑（如必读规则） */
+  onChange?: (text: string) => void;
 }
 
 const SAVE_DELAY = 600;
@@ -217,13 +221,15 @@ function setupFileChangeListener() {
 /* ── Editor Component ── */
 
 export const ArtifactEditor = forwardRef<ArtifactEditorHandle, ArtifactEditorProps>(
-  function ArtifactEditor({ content, filePath, mode, language }, ref) {
+  function ArtifactEditor({ content, filePath, mode, language, onChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const selfSaveRef = useRef(false);
     const filePathRef = useRef(filePath);
+    const onChangeRef = useRef(onChange);
     filePathRef.current = filePath;
+    onChangeRef.current = onChange;
 
     // Per-instance compartments for dynamic reconfiguration
     const cRef = useRef({
@@ -237,6 +243,7 @@ export const ArtifactEditor = forwardRef<ArtifactEditorHandle, ArtifactEditorPro
     useImperativeHandle(ref, () => ({
       getView: () => viewRef.current,
       focus: () => viewRef.current?.focus(),
+      getValue: () => viewRef.current?.state.doc.toString() ?? '',
     }));
 
     const saveToFile = useCallback((text: string) => {
@@ -255,6 +262,18 @@ export const ArtifactEditor = forwardRef<ArtifactEditorHandle, ArtifactEditorPro
       const c = cRef.current;
       const isMd = mode === 'markdown';
 
+      const persist = (text: string) => {
+        const cb = onChangeRef.current;
+        if (cb) {
+          cb(text);
+          setTimeout(() => {
+            if (!saveTimerRef.current) selfSaveRef.current = false;
+          }, 300);
+        } else {
+          saveToFile(text);
+        }
+      };
+
       const extensions = [
         drawSelection(),
         history(),
@@ -268,7 +287,7 @@ export const ArtifactEditor = forwardRef<ArtifactEditorHandle, ArtifactEditorPro
           if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
           saveTimerRef.current = setTimeout(() => {
             saveTimerRef.current = null;
-            saveToFile(text);
+            persist(text);
           }, SAVE_DELAY);
         }),
         // Dynamic compartments

@@ -88,6 +88,7 @@ export class Hub {
    * @param {string}  [opts.cwd]         工作目录覆盖
    * @param {string}  [opts.model]       模型覆盖
    * @param {string}  [opts.persist]     持久化目录（activity session）
+   * @param {string}  [opts.agentId]     Bridge 等场景：指定处理消息的助手 id
    * @returns {Promise<*>}
    */
   async send(text, opts = {}) {
@@ -105,8 +106,12 @@ export class Hub {
       onDelta,
       images,
       sessionPath,
+      agentId,
+      planDraft,
     } = opts;
-    const o = { sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, sessionPath };
+    const o = {
+      sessionKey, role, ephemeral, meta, isGroup, cwd, model, persist, from, to, onDelta, images, sessionPath, agentId, planDraft,
+    };
 
     // 路由表：按顺序匹配，第一条命中即执行。
     // 优先级通过位置保证，新增路由在此处显式插入，不依赖散落在各处的 if 顺序。
@@ -118,8 +123,8 @@ export class Hub {
       { // 桌面端 owner
         match: o => !o.sessionKey && !o.ephemeral && o.role === "owner",
         handle: () => o.sessionPath
-          ? this._engine.promptSession(o.sessionPath, text, { images: o.images })
-          : this._engine.prompt(text, { images: o.images }),
+          ? this._engine.promptSession(o.sessionPath, text, { images: o.images, planDraft: o.planDraft })
+          : this._engine.prompt(text, { images: o.images, planDraft: o.planDraft }),
       },
       { // Bridge guest
         match: o => o.sessionKey && o.role === "guest",

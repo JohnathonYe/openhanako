@@ -536,6 +536,11 @@ export class Agent {
     this._systemPrompt = this.buildSystemPrompt();
   }
 
+  /** 刷新 system prompt（规则文件变更等外部触发） */
+  refreshSystemPrompt() {
+    this._systemPrompt = this.buildSystemPrompt();
+  }
+
   // ════════════════════════════
   //  配置更新
   // ════════════════════════════
@@ -634,6 +639,30 @@ export class Agent {
       || readFile(path.join(this.productDir, "public-ishiki-templates", `${yuanType}.md`))
       || "";
     return fill(raw);
+  }
+
+  /** 读取工作空间 .rules/*.md 文件，拼合为字符串 */
+  _readWorkspaceRules(cwdPath) {
+    const rulesDir = path.join(cwdPath, ".rules");
+    try {
+      if (!fs.existsSync(rulesDir)) return "";
+      const entries = fs.readdirSync(rulesDir, { withFileTypes: true })
+        .filter(e => !e.isDirectory() && e.name.endsWith(".md"))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      if (entries.length === 0) return "";
+      const parts = [];
+      for (const e of entries) {
+        try {
+          const content = fs.readFileSync(path.join(rulesDir, e.name), "utf-8").trim();
+          if (content) {
+            parts.push(`## ${e.name}\n\n${content}`);
+          }
+        } catch { /* skip unreadable files */ }
+      }
+      return parts.join("\n\n---\n\n");
+    } catch {
+      return "";
+    }
   }
 
   /** 组装 system prompt */
@@ -839,6 +868,21 @@ export class Agent {
         `When the user says "desk" (书桌) or "workspace", they mean your current working directory (cwd), NOT the system Desktop (~/Desktop).` +
         (cwdPath ? `\nCurrent working directory: ${cwdPath}` : "")
     );
+
+    // 必读规则（.rules/*.md）—— 优先从 cwd 读，兜底用 homeCwd
+    const rulesPath = cwdPath || this._engine?.homeCwd || "";
+    if (rulesPath) {
+      const rulesContent = this._readWorkspaceRules(rulesPath);
+      if (rulesContent) {
+        parts.push(...section(
+          isZh ? "# 必读规则" : "# Required Rules",
+          (isZh
+            ? "以下是工作空间的必读规则文档（.rules/*.md），在执行任何任务前必须遵守。\n\n"
+            : "The following are required-reading rule documents (.rules/*.md) for the workspace. You must follow them before performing any task.\n\n"
+          ) + rulesContent
+        ));
+      }
+    }
 
     // 日期时间
     const now = new Date();

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSettingsStore } from '../store';
 import { hanaFetch } from '../api';
 import { t } from '../helpers';
+import { loadAgents } from '../actions';
 import { KeyInput } from '../widgets/KeyInput';
 import { Toggle } from '../widgets/Toggle';
 import styles from '../Settings.module.css';
@@ -47,6 +48,8 @@ interface BridgeStatus {
   qq: QQStatus;
   wechat: WechatStatus;
   readOnly: boolean;
+  /** 非空时固定使用该助手处理社交平台消息；空则跟随主窗口当前助手 */
+  ownerAgentId?: string;
   knownUsers: { telegram?: KnownUser[]; feishu?: KnownUser[]; whatsapp?: KnownUser[]; qq?: KnownUser[]; wechat?: KnownUser[] };
   owner: { telegram?: string; feishu?: string; whatsapp?: string; qq?: string; wechat?: string };
 }
@@ -55,7 +58,7 @@ type BridgePlatform = 'telegram' | 'feishu' | 'whatsapp' | 'qq' | 'wechat';
 
 export function BridgeTab() {
   const store = useSettingsStore();
-  const { showToast } = store;
+  const { showToast, agents } = store;
   const [status, setStatus] = useState<BridgeStatus | null>(null);
   const [testingPlatform, setTestingPlatform] = useState<BridgePlatform | null>(null);
 
@@ -116,7 +119,10 @@ export function BridgeTab() {
     }
   };
 
-  useEffect(() => { loadStatus(); }, []);
+  useEffect(() => {
+    loadStatus();
+    void loadAgents();
+  }, []);
 
   // 扫码 overlay 成功后触发刷新
   useEffect(() => {
@@ -196,6 +202,38 @@ export function BridgeTab() {
             onBlur={savePublicIshiki}
           />
           <span className={styles['settings-field-hint']}>{t('settings.agent.publicIshikiHint')}</span>
+        </div>
+      </section>
+
+      {/* 社交平台回复助手（preferences.bridge.ownerAgentId） */}
+      <section className={styles['settings-section']}>
+        <h2 className={styles['settings-section-title']}>{t('settings.bridge.replyAgent')}</h2>
+        <div className={styles['settings-field']}>
+          <label className={styles['settings-field-label']}>{t('settings.bridge.replyAgentLabel')}</label>
+          <select
+            className={styles['settings-input']}
+            value={status?.ownerAgentId || ''}
+            onChange={async (e) => {
+              const v = e.target.value.trim();
+              try {
+                await hanaFetch('/api/bridge/settings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ownerAgentId: v || null }),
+                });
+                showToast(t('settings.saved'), 'success');
+                await loadStatus();
+              } catch {
+                showToast(t('settings.saveFailed'), 'error');
+              }
+            }}
+          >
+            <option value="">{t('settings.bridge.replyAgentSameAsMain')}</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.name || a.id}</option>
+            ))}
+          </select>
+          <span className={styles['settings-field-hint']}>{t('settings.bridge.replyAgentHint')}</span>
         </div>
       </section>
 

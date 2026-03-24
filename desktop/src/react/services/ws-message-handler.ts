@@ -14,14 +14,31 @@ import { loadDeskFiles } from '../stores/desk-actions';
 import { loadChannels as loadChannelsAction, openChannel as openChannelAction } from '../stores/channel-actions';
 import { showError } from '../utils/ui-helpers';
 import { getWebSocket } from './websocket';
+import { dispatchDiaryWsResult } from './diary-ws';
 import {
   replayStreamResume,
   isStreamResumeRebuilding,
   isStreamScopedMessage,
   updateSessionStreamMeta,
 } from './stream-resume';
+import type { TodoItem } from '../types';
+import { expandTodosNumberedLines, mergePlanDraftTodosFromBlocks } from '../utils/message-parser';
 
 declare function t(key: string, vars?: Record<string, string>): any;
+
+/** 从最后一条 assistant 消息合并 todo add + 正文计划表/列表，用于 plan 确认 fallback */
+function extractTodosFromLastToolGroups(sessionPath: string): TodoItem[] {
+  const session = useStore.getState().chatSessions?.[sessionPath];
+  if (!session?.items?.length) return [];
+  for (let i = session.items.length - 1; i >= 0; i--) {
+    const item = session.items[i];
+    if (item.type !== 'message' || item.data.role !== 'assistant') continue;
+    const blocks = item.data.blocks || [];
+    const merged = mergePlanDraftTodosFromBlocks(blocks);
+    if (merged.length > 0) return merged;
+  }
+  return [];
+}
 
 // ── 聊天事件集合（走 StreamBufferManager） ──
 
@@ -112,10 +129,47 @@ export function handleServerMessage(msg: any): void {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'context_usage' }));
       }
+      const sp = msg.sessionPath || useStore.getState().currentSessionPath;
+      if (sp && useStore.getState().currentSessionPath === sp) {
+        const st = useStore.getState();
+        if (st.planFlowPhase === 'draft_sent') {
+          let todos = expandTodosNumberedLines(st.sessionTodos);
+          const fromToolGroups = extractTodosFromLastToolGroups(sp);
+          // 若 tool_end 未把完整列表写入 sessionTodos（多轮 add 时偶发），或正文/合并条数更多，以合并结果为准
+          if (fromToolGroups.length > todos.length) {
+            todos = fromToolGroups;
+            useStore.setState({ sessionTodos: fromToolGroups });
+          } else if (todos.length > st.sessionTodos.length) {
+            useStore.setState({ sessionTodos: todos });
+          }
+          let hasSteps = todos.some(t => !t.done && (t.text || '').trim());
+          // fallback：store 仍空/无有效步骤时，从 tool_group 取（需 tool_start 含 text，见 server TOOL_ARG_SUMMARY_KEYS）
+          if (todos.length === 0 || !hasSteps) {
+            if (fromToolGroups.length > 0) {
+              useStore.setState({ sessionTodos: fromToolGroups });
+              todos = fromToolGroups;
+              hasSteps = true;
+            }
+          }
+          if (todos.length > 0 && hasSteps) {
+            useStore.getState().updateLastAssistantMessage(sp, (m: any) => ({
+              ...m,
+              // /plan 规划成功后只保留 todo 工具痕迹，压掉“已添加待办/确认后我执行”之类误导性文案
+              blocks: (m.blocks || []).filter((b: any) => b.type === 'tool_group'),
+            }));
+            useStore.setState({ planFlowPhase: 'awaiting_confirm' });
+          } else {
+            useStore.setState({ planFlowPhase: 'idle' });
+          }
+        }
+      }
     }
-    // tool_end 后更新 todo
+    // tool_end 后更新 todo（仅当前会话，避免被后台 session 覆盖）
     if (msg.type === 'tool_end' && msg.name === 'todo' && msg.details?.todos) {
-      useStore.setState({ sessionTodos: msg.details.todos });
+      const sp = msg.sessionPath || useStore.getState().currentSessionPath;
+      if (sp && sp === useStore.getState().currentSessionPath) {
+        useStore.setState({ sessionTodos: expandTodosNumberedLines(msg.details.todos) });
+      }
     }
     // compaction_end 后更新 token
     if (msg.type === 'compaction_end') {
@@ -139,6 +193,15 @@ export function handleServerMessage(msg: any): void {
 
   // 非聊天渲染事件走传统 switch
   switch (msg.type) {
+    case 'diary_done':
+      dispatchDiaryWsResult({ type: 'diary_done' });
+      break;
+    case 'diary_error':
+      dispatchDiaryWsResult({ type: 'diary_error', message: msg.message });
+      break;
+    case 'diary_progress':
+      break;
+
     case 'stream_resume':
       replayStreamResume(msg);
       break;
@@ -155,6 +218,10 @@ export function handleServerMessage(msg: any): void {
 
     case 'desk_changed':
       loadDeskFiles();
+      break;
+
+    case 'jian_update':
+      useStore.getState().setDeskJianContent(msg.content ?? null);
       break;
 
     case 'browser_status':

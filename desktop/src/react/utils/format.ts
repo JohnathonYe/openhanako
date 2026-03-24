@@ -147,6 +147,33 @@ export function cronToHuman(schedule: number | string): string {
   return s;
 }
 
+/** 日常巡检间隔（分钟）→ 展示文案，≥60 分时用「小时」 */
+export function formatPatrolIntervalMinutes(
+  totalMinutes: number,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  const n = Math.max(1, Math.round(totalMinutes));
+  if (n < 60) return tr('activity.intervalMinutesFmt', { n });
+  const h = Math.floor(n / 60);
+  const m = n % 60;
+  if (m === 0) return tr('activity.intervalHoursFmt', { n: h });
+  return tr('activity.intervalHoursMinutesFmt', { hours: h, minutes: m });
+}
+
+/** 立即巡检冷却剩余（毫秒） */
+export function formatPatrolCooldownMs(
+  ms: number,
+  tr: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  const sec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return tr('activity.cooldownHmsFmt', { hours: h, minutes: m });
+  if (m > 0) return tr('activity.cooldownMmsFmt', { minutes: m, seconds: s });
+  return tr('activity.cooldownSecondsFmt', { seconds: s });
+}
+
 /**
  * 从 assistant 回复中解析 mood 区块
  */

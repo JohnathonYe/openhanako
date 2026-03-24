@@ -29,6 +29,11 @@ models:
   embedding: ""                    # 向量模型
   embedding_dimensions: 1024       # 向量维度
 
+# 日记（/diary 与自动日记）
+# auto_at_boundary: 每天在逻辑日分界（默认凌晨 4:00）为「上一完整逻辑日」自动写日记，并在服务端做记忆整理
+diary:
+  auto_at_boundary: true
+
 # 记忆系统配置
 # 高斯衰减：score = score × e^(-λ × t²)，t = days since last access
 # 前几天慢、中间加速、尾部趋零，约两周自然归零。
@@ -54,8 +59,11 @@ search:
   api_key: ""                            # 对应 provider 的 API key
 
 # Skills（per-agent 技能开关）
+# 新助手默认开启：cdp-browser-guide（浏览器远程调试引导）、media-local-tools（本地媒体）
 skills:
-  enabled: []                        # 启用的 skill 名称，如 ["pdf", "literary-craft"]
+  enabled:
+    - cdp-browser-guide
+    - media-local-tools
 
 # 频道系统（agent 间协作通信；为 false 时服务端不启动 channelTicker，须开 UI 频道开关或 POST /api/channels/toggle）
 channels:

@@ -646,3 +646,294 @@
     white-space: nowrap;
     flex-shrink: 0;
 }
+
+/* ── 必读规则区 ── */
+.rulesList {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 0.35rem;
+}
+
+.ruleItem {
+    font-size: 0.72rem;
+}
+
+.ruleRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+
+.ruleName {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-size: 0.72rem;
+}
+
+.ruleIconBtn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.ruleRow:hover .ruleIconBtn {
+    opacity: 1;
+}
+
+.ruleIconBtn:hover {
+    background: var(--overlay-light);
+    color: var(--text);
+}
+
+.ruleIconDanger:hover {
+    color: var(--danger, #c55);
+    background: rgba(200, 80, 80, 0.08);
+}
+
+.ruleEditor {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0;
+}
+
+.ruleEditorBody {
+    height: 180px;
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.ruleEditorBody :global(.artifact-editor) {
+    height: 100%;
+}
+
+.rulePreview {
+    font-size: 0.7rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    padding: 6px 0 4px;
+    margin-top: 2px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.ruleNameInput {
+    font-size: 0.72rem;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-sm);
+    padding: 3px 6px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.ruleNameInput:focus {
+    border-color: var(--accent);
+}
+
+.ruleTextarea {
+    font-size: 0.68rem;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-sm);
+    padding: 4px 6px;
+    outline: none;
+    resize: vertical;
+    min-height: 48px;
+    line-height: 1.5;
+    transition: border-color 0.15s;
+}
+
+.ruleTextarea:focus {
+    border-color: var(--accent);
+}
+
+.ruleActions {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.ruleBtn {
+    font-size: 0.65rem;
+    font-family: inherit;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.ruleBtn:hover {
+    opacity: 0.85;
+}
+
+.ruleBtnMuted {
+    font-size: 0.65rem;
+    font-family: inherit;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.ruleBtnMuted:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+}
+
+.ruleAddBtn {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 3px 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.15s;
+}
+
+.ruleAddBtn:hover {
+    color: var(--accent);
+}
+
+/* ── 浮动规则编辑器（portal 到 .main-content） ── */
+.ruleEditorOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 80;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl) var(--space-lg);
+    pointer-events: none;
+}
+
+.ruleEditorPanel {
+    pointer-events: auto;
+    width: 80%;
+    height: 82%;
+    max-width: 680px;
+    min-width: 340px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-card, var(--bg));
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-lg, 12px);
+    box-shadow: 0 8px 32px var(--shadow), 0 2px 8px rgba(0,0,0,0.04);
+    overflow: hidden;
+    animation: ruleEditorIn 0.25s var(--ease-out) both;
+}
+
+@keyframes ruleEditorIn {
+    from { opacity: 0; transform: translateY(12px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ruleEditorOverlay.closing .ruleEditorPanel {
+    animation: ruleEditorOut 0.08s ease-in forwards;
+}
+
+@keyframes ruleEditorOut {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to   { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+
+.ruleEditorPanelHeader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--overlay-light);
+    flex-shrink: 0;
+}
+
+.ruleEditorPanelTitle {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ruleEditorPanelNameInput {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--overlay-light);
+    border-radius: var(--radius-sm);
+    padding: 3px 8px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.ruleEditorPanelNameInput:focus {
+    border-color: var(--accent);
+}
+
+.ruleEditorPanelBody {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.ruleEditorPanelBody :global(.artifact-editor) {
+    height: 100%;
+}
+
+.ruleEditorPanelFooter {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: flex-end;
+    padding: var(--space-sm) var(--space-lg);
+    border-top: 1px solid var(--overlay-light);
+    flex-shrink: 0;
+}
+
+.ruleEditingHint {
+    font-size: 0.65rem;
+    color: var(--accent);
+    padding: 2px 0;
+    opacity: 0.7;
+}

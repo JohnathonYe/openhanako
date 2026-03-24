@@ -59,6 +59,7 @@ export function AgentCardStack({ agents, selectedId, currentAgentId, onSelect, o
       const handler = (e: PointerEvent) => {
         if (e.button !== 0) return;
         if (!container.matches(':hover')) return;
+        if ((e.target as HTMLElement).closest(`.${styles['agent-card-delete']}`)) return;
 
         e.preventDefault();
         card.setPointerCapture(e.pointerId);
@@ -154,7 +155,8 @@ export function AgentCardStack({ agents, selectedId, currentAgentId, onSelect, o
 
   const menuAgent = contextMenu ? agents.find(a => a.id === contextMenu.agentId) : null;
   const isMenuAgentCurrent = menuAgent?.id === currentAgentId;
-  const canDelete = agents.length >= 2 && !isMenuAgentCurrent;
+  /** 至少保留一个助手；删除当前主助手时由弹窗先切换再删（见 AgentDeleteOverlay） */
+  const canDelete = agents.length >= 2;
 
   return (
     <div
@@ -181,6 +183,7 @@ export function AgentCardStack({ agents, selectedId, currentAgentId, onSelect, o
                 zIndex: z,
               } as React.CSSProperties}
               onClick={(e) => {
+                if ((e.target as HTMLElement).closest(`.${styles['agent-card-delete']}`)) return;
                 const el = e.currentTarget as HTMLElement;
                 if (el.dataset.wasDragged) { delete el.dataset.wasDragged; return; }
                 if (isSelected) onAvatarClick();
@@ -205,6 +208,17 @@ export function AgentCardStack({ agents, selectedId, currentAgentId, onSelect, o
                   </div>
                 )}
               </div>
+              {isSelected && agents.length >= 2 && (
+                <button
+                  type="button"
+                  className={styles['agent-card-delete']}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onDelete(agent.id); }}
+                  title={t('settings.agent.deleteBtn')}
+                >
+                  ×
+                </button>
+              )}
               {agent.id === currentAgentId && <div className={styles['agent-card-badge']} />}
               <span className={styles['agent-card-name']}>{agent.name}</span>
             </div>

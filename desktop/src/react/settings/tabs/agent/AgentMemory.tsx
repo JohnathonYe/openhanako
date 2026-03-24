@@ -11,6 +11,8 @@ export function MemorySection({ hasUtilityModel, memoryEnabled, isViewingOther, 
   isViewingOther: boolean;
   currentPins: string[];
 }) {
+  const settingsConfig = useSettingsStore(s => s.settingsConfig);
+  const diaryAutoBoundary = settingsConfig?.diary?.auto_at_boundary !== false;
   const [pinInput, setPinInput] = useState('');
 
   const addPin = () => {
@@ -46,6 +48,21 @@ export function MemorySection({ hasUtilityModel, memoryEnabled, isViewingOther, 
         {!hasUtilityModel && (
           <p className={styles['settings-hint']} style={{ opacity: 0.6, marginTop: 4 }}>{t('settings.memory.needsUtilityModel')}</p>
         )}
+      </div>
+
+      <div className={styles['settings-subsection']}>
+        <div className={styles['settings-section-header']}>
+          <h3 className={styles['settings-subsection-title']}>{t('settings.memory.diaryAutoBoundary')}</h3>
+          <button
+            type="button"
+            className={`hana-toggle${diaryAutoBoundary ? ' on' : ''}`}
+            onClick={() => autoSaveConfig({ diary: { auto_at_boundary: !diaryAutoBoundary } })}
+            aria-pressed={diaryAutoBoundary}
+          />
+        </div>
+        <p className={styles['settings-hint']} style={{ opacity: 0.75, marginTop: 4 }}>
+          {t('settings.memory.diaryAutoBoundaryHint')}
+        </p>
       </div>
 
       <div className={!hasUtilityModel || !memoryEnabled ? 'settings-disabled' : ''}>

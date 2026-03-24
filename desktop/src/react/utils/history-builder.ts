@@ -5,7 +5,9 @@
  */
 
 import type { ChatMessage, ChatListItem, ContentBlock } from '../stores/chat-types';
-import { parseMoodFromContent, parseXingFromContent, parseUserAttachments } from './message-parser';
+import type { AgentRow } from './session-agent-display';
+import { buildAssistantAgentMeta } from './session-agent-display';
+import { parseMoodFromContent, parseXingFromContent, parseUserAttachments, stripPlanDraftWrapper } from './message-parser';
 import { renderMarkdown } from './markdown';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- API 历史消息 JSON 结构动态，难以静态收窄 */
@@ -37,9 +39,15 @@ export interface HistoryApiResponse {
   hasMore?: boolean;
 }
 
+export interface BuildHistoryOptions {
+  /** 当前 session 文件路径，用于解析每条助手消息所属 agent */
+  sessionPath?: string;
+  agents?: AgentRow[];
+}
+
 // ── 构建 ──
 
-export function buildItemsFromHistory(data: HistoryApiResponse): ChatListItem[] {
+export function buildItemsFromHistory(data: HistoryApiResponse, options?: BuildHistoryOptions): ChatListItem[] {
   const items: ChatListItem[] = [];
 
   // 按 afterIndex 分组 fileOutputs 和 artifacts
@@ -58,9 +66,10 @@ export function buildItemsFromHistory(data: HistoryApiResponse): ChatListItem[] 
     const id = m.id || `hist-${i}`;
 
     if (m.role === 'user') {
-      // strip steer 前缀（内部标记，不应展示给用户）
+      // strip steer / plan-draft 前缀（内部标记，不应展示给用户）
       const rawContent = (m.content || '').replace(/^（插话，无需 MOOD）\n?/, '');
-      const { text, files, deskContext } = parseUserAttachments(rawContent);
+      const afterPlan = stripPlanDraftWrapper(rawContent);
+      const { text, files, deskContext } = parseUserAttachments(afterPlan);
       const fileAtts = files.map(f => ({
         path: f.path,
         name: f.name,
@@ -179,7 +188,8 @@ export function buildItemsFromHistory(data: HistoryApiResponse): ChatListItem[] 
         }
       }
 
-      const msg: ChatMessage = { id, role: 'assistant', blocks };
+      const agentMeta = buildAssistantAgentMeta(options?.sessionPath, options?.agents);
+      const msg: ChatMessage = { id, role: 'assistant', blocks, ...agentMeta };
       items.push({ type: 'message', data: msg });
     }
   }

@@ -48,6 +48,7 @@ function createMocks() {
       bridge: { owner: { telegram: "owner123" } },
     }),
     getBridgeAgent: vi.fn().mockReturnValue({ agentName: "TestAgent" }),
+    resolveBridgeSessionAgent: vi.fn().mockReturnValue({ agentName: "TestAgent" }),
     isBridgeSessionStreaming: vi.fn().mockReturnValue(false),
     abortBridgeSession: vi.fn().mockResolvedValue(false),
     steerBridgeSession: vi.fn().mockReturnValue(false),

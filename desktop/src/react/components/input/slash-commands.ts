@@ -4,8 +4,8 @@
  * 从 InputArea.tsx 提取，减少主组件体量。
  */
 
-import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { getWebSocket } from '../../services/websocket';
+import { waitDiaryWsOnce } from '../../services/diary-ws';
 
 // ── Xing Prompt ──
 
@@ -87,16 +87,27 @@ export function executeDiary(
     setBusy('diary');
     setInput('');
     setMenuOpen(false);
+    const ws = getWebSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showResult(t('slash.diaryFailed'), 'error');
+      setBusy(null);
+      return;
+    }
     try {
-      const res = await hanaFetch('/api/diary/write', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        showResult(data.error || t('slash.diaryFailed'), 'error');
+      const wait = waitDiaryWsOnce();
+      ws.send(JSON.stringify({ type: 'diary_write' }));
+      const outcome = await wait;
+      if (!outcome.ok) {
+        if (outcome.error === 'timeout') showResult(t('slash.diaryTimeout'), 'error');
+        else if (outcome.error === 'diary_wait_overlap') showResult(t('error.diaryBusy'), 'error');
+        else showResult(outcome.error || t('slash.diaryFailed'), 'error');
         return;
       }
       showResult(t('slash.diaryDone'), 'success');
     } catch {
       showResult(t('slash.diaryFailed'), 'error');
+    } finally {
+      setBusy(null);
     }
   };
 }

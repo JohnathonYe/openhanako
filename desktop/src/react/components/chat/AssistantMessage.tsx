@@ -31,19 +31,26 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
   const sessionAgent = useStore(s => s.sessionAgent);
   const [avatarFailed, setAvatarFailed] = useState(false);
 
-  // 非主 agent session 用 sessionAgent 信息
-  const displayName = sessionAgent?.name || agentName;
-  const displayYuan = sessionAgent?.yuan || agentYuan;
+  const boundToMessage = Boolean(message.agentId || message.agentName);
+  // 优先：消息自带的 agent 快照（session 路径解析 / 流式写入），避免切换全局 agent 后历史气泡错显
+  const displayName = boundToMessage
+    ? (message.agentName || message.agentId || agentName)
+    : (sessionAgent?.name || agentName);
+  const displayYuan = boundToMessage
+    ? (message.agentYuan || agentYuan)
+    : (sessionAgent?.yuan || agentYuan);
   const fallbackAvatar = useMemo(() => {
     const types = (window.t?.('yuan.types') || {}) as Record<string, { avatar?: string }>;
     const entry = types[displayYuan] || types['hanako'];
     return `assets/${entry?.avatar || 'Hanako.png'}`;
   }, [displayYuan]);
-  const avatarSrc = sessionAgent?.avatarUrl || agentAvatarUrl || fallbackAvatar;
+  const avatarSrc = boundToMessage
+    ? (message.agentAvatarUrl || fallbackAvatar)
+    : (sessionAgent?.avatarUrl || agentAvatarUrl || fallbackAvatar);
 
   useEffect(() => {
     setAvatarFailed(false);
-  }, [sessionAgent?.avatarUrl, agentAvatarUrl, fallbackAvatar]);
+  }, [message.agentAvatarUrl, sessionAgent?.avatarUrl, agentAvatarUrl, fallbackAvatar]);
 
   const blocks = message.blocks || [];
 
@@ -92,18 +99,18 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
         {blocks.map((block, i) => (
           <ContentBlockView key={i} block={block} agentName={displayName} yuan={displayYuan} />
         ))}
+        <button type="button" className={`${styles.msgCopyBtn}${copied ? ` ${styles.msgCopyBtnCopied}` : ''}`} onClick={handleCopy} title={t('common.copyText')}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            {copied
+              ? <polyline points="20 6 9 17 4 12" />
+              : <>
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </>
+            }
+          </svg>
+        </button>
       </div>
-      <button className={`${styles.msgCopyBtn}${copied ? ` ${styles.msgCopyBtnCopied}` : ''}`} onClick={handleCopy} title={t('common.copyText')}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          {copied
-            ? <polyline points="20 6 9 17 4 12" />
-            : <>
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </>
-          }
-        </svg>
-      </button>
     </div>
   );
 });

@@ -57,6 +57,8 @@ export class SessionCoordinator {
    * @param {(agentId) => object|null} deps.getAgentById
    * @param {() => object} deps.listAgents - 列出所有 agent
    * @param {() => Promise<void>} [deps.flushBridgeOwnerMemory] - 收尾 Bridge 本人会话记忆
+   * @param {(sessionPath: string) => void} deps.applyPlanDraftTodoOnly
+   * @param {(sessionPath: string) => void} deps.syncSessionToolsToPlanMode
    */
   constructor(deps) {
     this._d = deps;
@@ -275,7 +277,17 @@ export class SessionCoordinator {
         `prompt → model: ${promptOpts.images.length} media [${mimes}], textLen=${(effectiveText || "").length}, model.input=${JSON.stringify(sessionModel?.input)}`,
       );
     }
-    await this._session.prompt(effectiveText, promptOpts);
+    const planDraft = opts?.planDraft;
+    if (planDraft && sp) {
+      this._d.applyPlanDraftTodoOnly(sp);
+    }
+    try {
+      await this._session.prompt(effectiveText, promptOpts);
+    } finally {
+      if (planDraft && sp) {
+        this._d.syncSessionToolsToPlanMode(sp);
+      }
+    }
     if (sp) {
       const entry = this._sessions.get(sp);
       const agent = entry ? this._d.getAgentById(entry.agentId) : this._d.getAgent();
@@ -308,7 +320,17 @@ export class SessionCoordinator {
     entry.lastTouchedAt = Date.now();
     if (sessionPath === this.currentSessionPath) this._sessionStarted = true;
     const promptOpts = opts?.images?.length ? { images: opts.images } : undefined;
-    await entry.session.prompt(text, promptOpts);
+    const planDraft = opts?.planDraft;
+    if (planDraft) {
+      this._d.applyPlanDraftTodoOnly(sessionPath);
+    }
+    try {
+      await entry.session.prompt(text, promptOpts);
+    } finally {
+      if (planDraft) {
+        this._d.syncSessionToolsToPlanMode(sessionPath);
+      }
+    }
     const agent = this._d.getAgentById(entry.agentId) || this._d.getAgent();
     agent?._memoryTicker?.notifyTurn(sessionPath);
   }

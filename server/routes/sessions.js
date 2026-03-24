@@ -12,7 +12,7 @@ import { isToolCallBlock, getToolArgs } from "../../core/llm-utils.js";
  * content 可能是 string 或 [{type: "text", text: "..."}, {type: "thinking", thinking: "..."}, ...]
  * 返回 { text, thinking, toolUses }
  */
-const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "key", "value", "action", "type", "schedule", "prompt", "label"];
+const TOOL_ARG_SUMMARY_KEYS = ["file_path", "path", "command", "pattern", "url", "query", "key", "value", "action", "type", "schedule", "prompt", "label", "text", "id"];
 
 /** 从文本中提取并剥离 <think>...</think> 标签 */
 function stripThinkTags(raw) {

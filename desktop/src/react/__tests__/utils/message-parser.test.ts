@@ -3,12 +3,18 @@ import {
   parseMoodFromContent,
   parseXingFromContent,
   parseUserAttachments,
+  stripPlanDraftWrapper,
   cleanMoodText,
   truncatePath,
   extractHostname,
   truncateHead,
   extractToolDetail,
+  extractToolDetailFull,
   moodLabel,
+  extractTodosFromAddText,
+  extractPlanStepsFromAssistantBlocks,
+  mergePlanDraftTodosFromBlocks,
+  expandTodosNumberedLines,
 } from '../../utils/message-parser';
 
 describe('parseMoodFromContent', () => {
@@ -131,6 +137,34 @@ describe('parseUserAttachments', () => {
   });
 });
 
+describe('stripPlanDraftWrapper', () => {
+  it('zh 格式：剥离 plan.draftPrompt 包装，返回任务文本', () => {
+    const wrapped =
+      '【/plan 仅规划】\n用户任务：\n分析俄乌战争的最真实情况\n\n你必须使用 **todo** 工具将任务拆成可执行步骤。';
+    expect(stripPlanDraftWrapper(wrapped)).toBe('分析俄乌战争的最真实情况');
+  });
+
+  it('en 格式：剥离 plan.draftPrompt 包装', () => {
+    const wrapped =
+      '[/plan — planning only]\nTask:\nAnalyze the war situation\n\nYou MUST use the **todo** tool to break the task into steps.';
+    expect(stripPlanDraftWrapper(wrapped)).toBe('Analyze the war situation');
+  });
+
+  it('非 plan 消息原样返回', () => {
+    expect(stripPlanDraftWrapper('hello world')).toBe('hello world');
+  });
+
+  it('空内容原样返回', () => {
+    expect(stripPlanDraftWrapper('')).toBe('');
+  });
+
+  it('多行任务文本保留', () => {
+    const wrapped =
+      '【/plan 仅规划】\n用户任务：\n第一行\n第二行\n\n你必须使用 **todo** 工具';
+    expect(stripPlanDraftWrapper(wrapped)).toBe('第一行\n第二行');
+  });
+});
+
 describe('truncatePath', () => {
   it('短路径不截断', () => {
     expect(truncatePath('/short')).toBe('/short');
@@ -191,6 +225,84 @@ describe('extractToolDetail', () => {
 
   it('无 args 返回空', () => {
     expect(extractToolDetail('read', undefined)).toBe('');
+  });
+});
+
+describe('extractToolDetailFull', () => {
+  it('grep 返回完整 pattern 与路径', () => {
+    const longPat = 'coding|token|plan|subscription|verylongsuffix';
+    const longPath = '/Users/yejohnathon/Desktop/very/deep/nested/folder';
+    const args = { pattern: longPat, path: longPath };
+    expect(extractToolDetailFull('grep', args)).toBe(`${longPat} in ${longPath}`);
+    expect(extractToolDetail('grep', args)).not.toBe(extractToolDetailFull('grep', args));
+  });
+
+  it('web_search 返回完整查询', () => {
+    const q = 'cheapest AI coding assistant subscription';
+    expect(extractToolDetailFull('web_search', { query: q })).toBe(q);
+  });
+
+  it('未知工具返回格式化的 JSON', () => {
+    const s = extractToolDetailFull('custom_tool', { a: 1, b: 'x' });
+    expect(s).toContain('"a"');
+    expect(s).toContain('"b"');
+  });
+});
+
+describe('/plan merge: extractTodosFromAddText', () => {
+  it('多行编号拆成多条', () => {
+    const t = '1. 第一步\n2. 第二步\n3. 第三步';
+    expect(extractTodosFromAddText(t)).toEqual(['第一步', '第二步', '第三步']);
+  });
+
+  it('单行不拆', () => {
+    expect(extractTodosFromAddText('只做一件事')).toEqual(['只做一件事']);
+  });
+});
+
+describe('/plan merge: extractPlanStepsFromAssistantBlocks', () => {
+  it('从 HTML 表格解析序号列与步骤列', () => {
+    const html =
+      '<table><tbody>' +
+      '<tr><td>1</td><td>搜索最新动态</td></tr>' +
+      '<tr><td>2</td><td>收集多方信源</td></tr>' +
+      '</tbody></table>';
+    expect(extractPlanStepsFromAssistantBlocks([{ type: 'text', html }])).toEqual([
+      '搜索最新动态',
+      '收集多方信源',
+    ]);
+  });
+});
+
+describe('/plan merge: mergePlanDraftTodosFromBlocks', () => {
+  it('正文表格条数多于单次 todo add 时采用表格', () => {
+    const tableHtml =
+      '<table><tbody>' +
+      '<tr><td>1</td><td>A</td></tr>' +
+      '<tr><td>2</td><td>B</td></tr>' +
+      '<tr><td>3</td><td>C</td></tr>' +
+      '</tbody></table>';
+    const blocks = [
+      {
+        type: 'tool_group' as const,
+        tools: [{ name: 'todo', args: { action: 'add', text: '仅一条' }, done: true, success: true }],
+        collapsed: true,
+      },
+      { type: 'text' as const, html: tableHtml },
+    ];
+    const got = mergePlanDraftTodosFromBlocks(blocks);
+    expect(got).toHaveLength(3);
+    expect(got.map(t => t.text)).toEqual(['A', 'B', 'C']);
+  });
+});
+
+describe('expandTodosNumberedLines', () => {
+  it('展开单条 todo 内多行编号', () => {
+    const expanded = expandTodosNumberedLines([
+      { id: 1, text: '1. a\n2. b', done: false },
+    ]);
+    expect(expanded).toHaveLength(2);
+    expect(expanded.map(t => t.text)).toEqual(['a', 'b']);
   });
 });
 

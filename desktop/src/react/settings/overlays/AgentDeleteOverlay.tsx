@@ -10,16 +10,22 @@ const platform = window.platform;
 export function AgentDeleteOverlay() {
   const { agents, currentAgentId, showToast } = useSettingsStore();
   const [visible, setVisible] = useState(false);
+  const [pendingAgentId, setPendingAgentId] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
   const [nameInput, setNameInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const settingsAgentId = useSettingsStore(s => s.settingsAgentId);
-  const targetId = settingsAgentId || currentAgentId;
-  const target = agents.find(a => a.id === targetId);
+  const targetId = pendingAgentId;
+  const target = targetId ? agents.find(a => a.id === targetId) : undefined;
 
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ agentId?: string }>).detail;
+      const fromEvent = detail?.agentId?.trim();
+      const store = useSettingsStore.getState();
+      const id = fromEvent || store.settingsAgentId || store.currentAgentId;
+      if (!id) return;
+      setPendingAgentId(id);
       setStep(1);
       setNameInput('');
       setVisible(true);
@@ -32,10 +38,13 @@ export function AgentDeleteOverlay() {
     if (step === 2) requestAnimationFrame(() => inputRef.current?.focus());
   }, [step]);
 
-  const close = () => setVisible(false);
+  const close = () => {
+    setVisible(false);
+    setPendingAgentId(null);
+  };
 
   const confirmDelete = async () => {
-    if (!target || nameInput.trim() !== target.name) return;
+    if (!target || !targetId || nameInput.trim() !== target.name) return;
     try {
       if (targetId === currentAgentId) {
         const other = agents.find(a => a.id !== targetId);

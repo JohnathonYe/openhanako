@@ -5,9 +5,15 @@
  * 通过 portal 渲染到 index.html 的 #inputAreaPortal。
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../stores';
+import { ensureSession } from '../stores/session-actions';
+import { getWebSocket } from '../services/websocket';
+import { waitDiaryWsOnce } from '../services/diary-ws';
+import { streamBufferManager } from '../hooks/use-stream-buffer';
+import { renderMarkdown } from '../utils/markdown';
+import type { ChatMessage, UserAttachment } from '../stores/chat-types';
 import {
   countMediaAttachments,
   guessMediaMimeType,
@@ -28,6 +34,7 @@ import { mediaKindsFromPayloadImages } from '../../../../lib/media-reject-heuris
 import type { ThinkingLevel } from '../stores/model-slice';
 import type { AttachedFile } from '../stores/input-slice';
 import { showHanaToast } from '../utils/hana-toast';
+import { TodoDisplay } from './input/TodoDisplay';
 
 // ── 斜杠命令 ──
 
@@ -71,11 +78,13 @@ export interface SlashCommand {
 // ── 主组件 ──
 
 export function InputArea() {
-  const portalEl = document.getElementById('inputAreaPortal');
-  if (!portalEl) {
-    console.warn('[InputArea] portal target #inputAreaPortal not found');
-    return null;
-  }
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const el = document.getElementById('inputAreaPortal');
+    if (!el) console.warn('[InputArea] portal target #inputAreaPortal not found');
+    setPortalEl(el);
+  }, []);
+  if (!portalEl) return null;
   return createPortal(<InputAreaInner />, portalEl);
 }
 
@@ -159,6 +168,32 @@ function shouldLogMediaDebug(): boolean {
   return false;
 }
 
+function attachedFilesToUserAttachments(files: AttachedFile[] | null | undefined): UserAttachment[] | undefined {
+  if (!files?.length) return undefined;
+  return files.map(f => ({
+    path: f.path,
+    name: f.name,
+    isDir: !!f.isDirectory,
+    base64Data: f.base64Data,
+    mimeType: f.mimeType,
+  }));
+}
+
+/** 乐观追加用户气泡（旧 HanaModules.chatRender.addUserMessage） */
+function appendOptimisticUserMessage(displayText: string, files: AttachedFile[] | null | undefined) {
+  const path = useStore.getState().currentSessionPath;
+  if (!path) return;
+  const id = `local-${Date.now()}`;
+  const msg: ChatMessage = {
+    id,
+    role: 'user',
+    text: displayText,
+    textHtml: displayText ? renderMarkdown(displayText) : undefined,
+    attachments: attachedFilesToUserAttachments(files),
+  };
+  useStore.getState().appendItem(path, { type: 'message', data: msg });
+}
+
 function InputAreaInner() {
   const { t } = useI18n();
 
@@ -166,7 +201,9 @@ function InputAreaInner() {
   const isStreaming = useStore(s => s.isStreaming);
   const connected = useStore(s => s.connected);
   const pendingNewSession = useStore(s => s.pendingNewSession);
+  const currentSessionPath = useStore(s => s.currentSessionPath);
   const sessionTodos = useStore(s => s.sessionTodos);
+  const setSessionTodos = useStore(s => s.setSessionTodos);
   const attachedFiles = useStore(s => s.attachedFiles);
   const docContextAttached = useStore(s => s.docContextAttached);
   const artifacts = useStore(s => s.artifacts);
@@ -193,6 +230,9 @@ function InputAreaInner() {
   // Local state
   const [inputText, setInputText] = useState('');
   const [planMode, setPlanMode] = useState(false);
+  const [planTagActive, setPlanTagActive] = useState(false);
+  const [planIndent, setPlanIndent] = useState(0);
+  const planTagRef = useRef<HTMLSpanElement>(null);
   const [sending, setSending] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashSelected, setSlashSelected] = useState(0);
@@ -202,10 +242,21 @@ function InputAreaInner() {
   const [atQuery, setAtQuery] = useState('');
   const [atStartPos, setAtStartPos] = useState(-1);
   const [mentionedFiles, setMentionedFiles] = useState<Array<{ name: string; path: string }>>([]);
+  const handleSendRef = useRef<() => Promise<void>>(async () => {});
+  const planFlowPhase = useStore(s => s.planFlowPhase);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mediaFileInputRef = useRef<HTMLInputElement>(null);
   const isComposing = useRef(false);
+
+  // 测量 plan 标签宽度，用于 text-indent 让首行缩进、换行回最左
+  useLayoutEffect(() => {
+    if (planTagActive && planTagRef.current) {
+      setPlanIndent(planTagRef.current.offsetWidth + 8);
+    } else {
+      setPlanIndent(0);
+    }
+  }, [planTagActive]);
 
   /** 默认关闭：需用户按下开关后 localStorage 写 '1' 才启用多模态 */
   const [multimodalToModel, setMultimodalToModel] = useState(() => {
@@ -254,20 +305,17 @@ function InputAreaInner() {
 
   /** 统一的"以用户身份发送"入口，所有斜杠命令共用 */
   const sendAsUser = useCallback(async (text: string, displayText?: string): Promise<boolean> => {
-    const state = (window as any).__hanaState;
-    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return false;
+    const ws = getWebSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     if (useStore.getState().isStreaming) return false;
 
     if (pendingNewSession) {
-      const _sb = () => (window as any).HanaModules.sidebar;
-      const ok = await _sb().ensureSession();
+      const ok = await ensureSession();
       if (!ok) return false;
-      _sb().loadSessions();
     }
 
-    const _cr = () => (window as any).HanaModules.chatRender;
-    _cr().addUserMessage(displayText ?? text);
-    state.ws.send(JSON.stringify({ type: 'prompt', text }));
+    appendOptimisticUserMessage(displayText ?? text, null);
+    ws.send(JSON.stringify({ type: 'prompt', text }));
     return true;
   }, [pendingNewSession]);
 
@@ -278,17 +326,29 @@ function InputAreaInner() {
     setInputText('');
     setSlashMenuOpen(false);
 
-    try {
-      const res = await hanaFetch('/api/diary/write', { method: 'POST' });
-      const data = await res.json();
+    const ws = getWebSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showHanaToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
+      setSlashBusy(null);
+      return;
+    }
 
-      if (!res.ok || data.error) {
-        showHanaToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
+    try {
+      const wait = waitDiaryWsOnce();
+      ws.send(JSON.stringify({ type: 'diary_write' }));
+      const outcome = await wait;
+      if (!outcome.ok) {
+        const errMsg =
+          outcome.error === 'timeout'
+            ? tSafe(t, 'slash.diaryTimeout', '日记生成超时，请查看日志或稍后重试')
+            : outcome.error === 'diary_wait_overlap'
+              ? tSafe(t, 'error.diaryBusy', '已有日记任务在进行')
+              : outcome.error;
+        showHanaToast(errMsg, 'error');
         return;
       }
-
       showHanaToast(tSafe(t, 'slash.diaryDone', '日记已保存'), 'success');
-    } catch (err) {
+    } catch {
       showHanaToast(tSafe(t, 'slash.diaryFailed', '日记写入失败'), 'error');
     } finally {
       setSlashBusy(null);
@@ -302,6 +362,19 @@ function InputAreaInner() {
   }, [sendAsUser]);
 
   const slashCommands: SlashCommand[] = useMemo(() => [
+    {
+      name: 'plan',
+      label: '/plan',
+      description: tSafe(t, 'slash.plan', '用待办拆解任务（确认后执行）'),
+      busyLabel: '',
+      icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+      execute: async () => {
+        setPlanTagActive(true);
+        setSlashMenuOpen(false);
+        setInputText(prev => prev.replace(/^\/\w*\s*/i, '').trimStart());
+        textareaRef.current?.focus();
+      },
+    },
     {
       name: 'diary',
       label: '/diary',
@@ -320,7 +393,6 @@ function InputAreaInner() {
     },
   ], [executeDiary, executeXing, t]);
 
-  // 过滤匹配的命令
   const filteredCommands = useMemo(() => {
     if (!inputText.startsWith('/')) return slashCommands;
     const query = inputText.slice(1).toLowerCase();
@@ -370,10 +442,10 @@ function InputAreaInner() {
     setInputText(value);
 
     // slash commands
-    if (value.startsWith('/') && value.length <= 20) {
+    if (value.startsWith('/') && value.length <= 20 && !planTagActive) {
       setSlashMenuOpen(true);
       setSlashSelected(0);
-    } else {
+    } else if (!value.startsWith('/') || planTagActive) {
       setSlashMenuOpen(false);
     }
 
@@ -640,6 +712,7 @@ function InputAreaInner() {
   // ── Send message ──
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
+    const isPlanSlash = planTagActive;
 
     // 斜杠命令拦截
     if (text.startsWith('/') && slashMenuOpen && filteredCommands.length > 0) {
@@ -657,12 +730,9 @@ function InputAreaInner() {
     setSending(true);
 
     try {
-      const state = window.__hanaState!;
       if (pendingNewSession) {
-        const _sb = () => window.HanaModules!.sidebar;
-        const ok = await _sb().ensureSession();
+        const ok = await ensureSession();
         if (!ok) return;
-        _sb().loadSessions();
       }
 
       // 分离可发给模型的媒体 vs 路径类附件（是否被上游接受由 Pi / 模型 input 决定）
@@ -696,7 +766,7 @@ function InputAreaInner() {
       }
       if (pathParts.length > 0) {
         const fileBlock = pathParts.join('\n');
-        finalText = text ? `${text}\n\n${fileBlock}` : fileBlock;
+        finalText = finalText ? `${finalText}\n\n${fileBlock}` : fileBlock;
       }
 
       // Pi SDK 使用 ImageContent：视频/音频也用 type: 'image' + 对应 mime，由 provider 映射为 inlineData / data URL
@@ -794,6 +864,10 @@ function InputAreaInner() {
 
       const wsMsg: Record<string, unknown> = { type: 'prompt', text: finalText };
       if (images.length > 0) wsMsg.images = images;
+      if (isPlanSlash) {
+        wsMsg.planDraft = true;
+        useStore.getState().setPlanFlowPhase('draft_sent');
+      }
 
       let payloadStr: string;
       try {
@@ -824,7 +898,7 @@ function InputAreaInner() {
         });
       }
 
-      const ws = state.ws as WebSocket | undefined;
+      const ws = getWebSocket();
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         showHanaToast(tSafe(t, 'input.notConnected', '未连接服务器，无法发送'), 'error');
         return;
@@ -863,36 +937,65 @@ function InputAreaInner() {
         setDocContextAttached(false);
       }
 
-      const _cr = () => window.HanaModules!.chatRender;
-      _cr().addUserMessage(text, allFiles.length > 0 ? allFiles : null, null);
+      appendOptimisticUserMessage(text, allFiles.length > 0 ? allFiles : null);
       setInputText('');
+      if (isPlanSlash) setPlanTagActive(false);
       clearAttachedFiles();
       setMentionedFiles([]);
     } finally {
       setSending(false);
     }
-  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, t]);
+  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, planTagActive, t]);
+
+  handleSendRef.current = handleSend;
+
+  const handleCancelPlan = useCallback(() => {
+    useStore.getState().setPlanFlowPhase('idle');
+  }, []);
+
+  const handleConfirmPlan = useCallback(async (items: { text: string }[]) => {
+    const lines = items.map(x => x.text.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      showHanaToast(tSafe(t, 'plan.emptySteps', '请至少保留一条待办'), 'error');
+      return;
+    }
+    if (pendingNewSession) {
+      const ok = await ensureSession();
+      if (!ok) return;
+    }
+    const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join('\n');
+    const body = `${tSafe(t, 'plan.executeUserBody', 'User confirmed the plan below. First, sync the todo list so it exactly matches these confirmed steps: clear mismatched draft todos if needed, then add each confirmed step once. Then execute in order. You MUST use the todo tool to mark each item completed (toggle) when that step is finished; do not mark done prematurely. If a step cannot be completed, explain why.')}\n\n${numbered}`;
+    const ws = getWebSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showHanaToast(tSafe(t, 'input.notConnected', '未连接服务器，无法发送'), 'error');
+      return;
+    }
+    setSessionTodos(lines.map((text, i) => ({ id: i + 1, text, done: false })));
+    useStore.getState().setPlanFlowPhase('idle');
+    ws.send(JSON.stringify({ type: 'prompt', text: body }));
+  }, [pendingNewSession, setSessionTodos, t]);
 
   // ── Steer (插话) ──
   const handleSteer = useCallback(() => {
     const text = inputText.trim();
     if (!text || !isStreaming) return;
-    const state = window.__hanaState!;
-    if (!state.ws) return;
+    const ws = getWebSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    // 断开当前 assistant 消息组（不封存工具），让后续回复出现在 steer 消息下方
-    window.HanaModules!.chatRender.breakAssistantGroup();
-    window.HanaModules!.chatRender.addUserMessage(text, null, null);
+    const sp = useStore.getState().currentSessionPath;
+    if (sp) streamBufferManager.clear(sp);
+
+    appendOptimisticUserMessage(text, null);
 
     setInputText('');
-    state.ws.send(JSON.stringify({ type: 'steer', text }));
+    ws.send(JSON.stringify({ type: 'steer', text }));
   }, [inputText, isStreaming]);
 
   // ── Stop generation ──
   const handleStop = useCallback(() => {
-    const state = window.__hanaState!;
-    if (!isStreaming || !state.ws) return;
-    state.ws.send(JSON.stringify({ type: 'abort' }));
+    const ws = getWebSocket();
+    if (!isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'abort' }));
   }, [isStreaming]);
 
   // ── Key handler ──
@@ -936,7 +1039,14 @@ function InputAreaInner() {
       if (e.key === 'Tab') {
         e.preventDefault();
         const cmd = filteredCommands[slashSelected];
-        if (cmd) setInputText('/' + cmd.name);
+        if (cmd) {
+          // plan 采用含内标签形式：与点击一致，直接 execute 以显示 tag bar
+          if (cmd.name === 'plan') {
+            cmd.execute();
+          } else {
+            setInputText('/' + cmd.name + ' ');
+          }
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -957,7 +1067,13 @@ function InputAreaInner() {
 
   return (
     <>
-      <TodoDisplay todos={sessionTodos} />
+      <TodoDisplay
+        todos={currentSessionPath ? sessionTodos : []}
+        planFlowPhase={planFlowPhase}
+        onCancelPlan={handleCancelPlan}
+        onConfirmPlan={handleConfirmPlan}
+        onClearTodos={currentSessionPath ? () => setSessionTodos([]) : undefined}
+      />
 
       {slashMenuOpen && filteredCommands.length > 0 && (
         <SlashCommandMenu
@@ -992,8 +1108,18 @@ function InputAreaInner() {
             onRemove={removeAttachedFile}
           />
         )}
-        <div className="input-mirror-container">
-          <MentionMirror text={inputText} mentionNames={mentionedNames} />
+        <div className="input-text-row">
+          {planTagActive && (
+            <span ref={planTagRef} className="plan-tag plan-tag-inline">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+              </svg>
+              <span className="plan-tag-label">{tSafe(t, 'slash.planTag', '/plan')}</span>
+              <button type="button" className="plan-tag-remove" onClick={() => setPlanTagActive(false)} aria-label="remove">✕</button>
+            </span>
+          )}
+          <div className="input-mirror-container">
+          <MentionMirror text={inputText} mentionNames={mentionedNames} textIndent={planIndent} />
           <textarea
             ref={textareaRef}
             id="inputBox"
@@ -1007,7 +1133,9 @@ function InputAreaInner() {
             onPaste={handlePaste}
             onCompositionStart={() => { isComposing.current = true; }}
             onCompositionEnd={() => { isComposing.current = false; }}
+            style={planIndent > 0 ? { textIndent: `${planIndent}px` } : undefined}
           />
+          </div>
         </div>
 
         <div className="input-bottom-bar">
@@ -1057,37 +1185,6 @@ function InputAreaInner() {
         </div>
       </div>
     </>
-  );
-}
-
-// ── Todo Display ──
-
-function TodoDisplay({ todos }: { todos: Array<{ text: string; done: boolean }> }) {
-  const [open, setOpen] = useState(false);
-
-  if (!todos || todos.length === 0) return null;
-
-  const done = todos.filter(td => td.done).length;
-
-  return (
-    <div className="input-top-bar">
-      <div className={'todo-display has-todos' + (open ? ' open' : '')}>
-        <button className="todo-trigger" onClick={() => setOpen(!open)}>
-          <span className="todo-trigger-icon">☑</span>
-          <span className="todo-trigger-label">To Do</span>
-          <span className="todo-trigger-count">{done}/{todos.length}</span>
-        </button>
-        {open && (
-          <div className="todo-list">
-            {todos.map((td, i) => (
-              <div key={i} className={'todo-item' + (td.done ? ' done' : '')}>
-                <span className="todo-check">{td.done ? '✓' : '○'}</span> {td.text}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -1368,9 +1465,10 @@ function ModelSelector({ models }: { models: Array<{ id: string; name: string; i
       // Reload models
       const favRes = await hanaFetch('/api/models/favorites');
       const favData = await favRes.json();
-      const state = window.__hanaState!;
-      state.models = favData.models || [];
-      state.currentModel = favData.current;
+      useStore.setState({
+        models: favData.models || [],
+        currentModel: favData.current,
+      });
     } catch (err) {
       console.error('[model] switch failed:', err);
     }
@@ -1430,7 +1528,7 @@ function SlashCommandMenu({ commands, selected, busy, onSelect, onHover }: {
 
 // ── Mention Mirror (overlay that renders @name as inline tags) ──
 
-function MentionMirror({ text, mentionNames }: { text: string; mentionNames: Set<string> }) {
+function MentionMirror({ text, mentionNames, textIndent }: { text: string; mentionNames: Set<string>; textIndent?: number }) {
   if (mentionNames.size === 0) return null;
 
   const parts: Array<{ key: string; text: string; isMention: boolean }> = [];
@@ -1451,7 +1549,7 @@ function MentionMirror({ text, mentionNames }: { text: string; mentionNames: Set
   }
 
   return (
-    <div className="input-mirror" aria-hidden="true">
+    <div className="input-mirror" aria-hidden="true" style={textIndent ? { textIndent: `${textIndent}px` } : undefined}>
       {parts.map(p =>
         p.isMention
           ? <span key={p.key} className="mirror-mention">{p.text}</span>

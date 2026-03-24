@@ -18,6 +18,7 @@ import { DeskDropZone } from './desk/DeskDropZone';
 import { DeskEmptyOverlay } from './desk/DeskEmptyOverlay';
 import { DeskCwdSkillsButton, DeskCwdSkillsPanel } from './desk/DeskCwdSkills';
 import { DeskSkillsSection } from './desk/DeskSkillsSection';
+import { DeskRulesSection } from './desk/DeskRulesSection';
 import s from './desk/Desk.module.css';
 
 export function DeskSection() {
@@ -49,6 +50,7 @@ export function DeskSection() {
         <DeskOpenButton />
         <DeskCwdSkillsPanel />
         <DeskSkillsSection />
+        <DeskRulesSection />
         <div className={s.toolbar}>
           <DeskBreadcrumb />
           <DeskSortButton sortMode={sortMode} onSort={setSortMode} onShowMenu={handleShowMenu} />

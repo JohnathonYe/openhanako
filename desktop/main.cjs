@@ -1616,16 +1616,22 @@ ipcMain.handle("get-splash-info", () => {
 });
 
 // 选择文件夹（系统原生对话框）
+// 注：Linux 上 Electron 37+ 有时会显示文件选择器而非文件夹选择器（electron/electron#48217）
+// macOS：需先双击进入目标文件夹，再点「打开」才能选中该目录
 ipcMain.handle("select-folder", async (event) => {
-  // 找到发起请求的窗口
   const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openDirectory"],
+    defaultPath: app.getPath("home"),
     title: mt("dialog.selectFolder", null, "Select Working Folder"),
   });
   if (result.canceled || !result.filePaths.length) return null;
-  return result.filePaths[0];
+  const chosen = result.filePaths[0];
+  try {
+    if (!fs.statSync(chosen).isDirectory()) return null;
+  } catch { return null; }
+  return chosen;
 });
 
 // 选择技能文件/文件夹（支持 .zip / .skill / 文件夹）
