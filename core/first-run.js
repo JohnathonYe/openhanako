@@ -8,6 +8,10 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { saveConfig } from "../lib/memory/config-loader.js";
+
+const DESK_REQUIRED_RULES_SKILL = "desk-required-rules";
+const DESK_REQUIRED_RULES_MIGRATION_MARKER = ".migrated-desk-required-rules-skill";
 
 /**
  * 确保 ~/.hanako/ 数据目录就绪
@@ -132,6 +136,39 @@ export function syncSkills(srcDir, dstDir) {
       if (!fs.existsSync(path.join(candidate, "SKILL.md"))) continue;
       fs.rmSync(candidate, { recursive: true, force: true });
     }
+  } catch {}
+}
+
+/**
+ * 一次性迁移：为所有 agent 默认启用 desk-required-rules（若技能已安装且尚未在 enabled 中）。
+ * 写入 user/.migrated-desk-required-rules-skill 后不再执行。
+ *
+ * @param {object} opts
+ * @param {string} opts.hanakoHome
+ * @param {string} opts.skillsDir
+ * @param {Map} opts.agents
+ * @param {(agent: object) => void} opts.syncAgentSkills
+ */
+export function migrateDeskRequiredRulesSkill({ hanakoHome, skillsDir, agents, syncAgentSkills }) {
+  const marker = path.join(hanakoHome, "user", DESK_REQUIRED_RULES_MIGRATION_MARKER);
+  if (fs.existsSync(marker)) return;
+
+  const skillMd = path.join(skillsDir, DESK_REQUIRED_RULES_SKILL, "SKILL.md");
+  if (!fs.existsSync(skillMd)) return;
+
+  for (const [, ag] of agents) {
+    const enabled = ag.config?.skills?.enabled;
+    const list = Array.isArray(enabled) ? [...enabled] : [];
+    if (list.includes(DESK_REQUIRED_RULES_SKILL)) continue;
+    list.push(DESK_REQUIRED_RULES_SKILL);
+    saveConfig(ag.configPath, { skills: { enabled: list } });
+    ag.reloadConfigFromDisk();
+    syncAgentSkills(ag);
+  }
+
+  try {
+    fs.mkdirSync(path.join(hanakoHome, "user"), { recursive: true });
+    fs.writeFileSync(marker, new Date().toISOString(), "utf-8");
   } catch {}
 }
 

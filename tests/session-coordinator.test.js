@@ -59,6 +59,7 @@ describe("SessionCoordinator", () => {
       setMemoryEnabled: vi.fn((enabled) => {
         sessionMemoryEnabled = !!enabled;
       }),
+      refreshSystemPrompt: vi.fn(),
     };
 
     const resourceLoader = {
@@ -93,6 +94,7 @@ describe("SessionCoordinator", () => {
     await coordinator.createSession(null, "/tmp/workspace", false);
 
     expect(agent.setMemoryEnabled).toHaveBeenCalledWith(false);
+    expect(agent.refreshSystemPrompt).toHaveBeenCalledOnce();
     expect(createAgentSessionMock).toHaveBeenCalledOnce();
     expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("MEMORY OFF");
   });
@@ -125,6 +127,7 @@ describe("SessionCoordinator", () => {
         agentName: "test-agent",
         config: { models: { chat: "default-model" } },
         tools: [],
+        refreshSystemPrompt: vi.fn(),
       }),
       getActiveAgentId: () => "hana",
       getModels: () => ({

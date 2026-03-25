@@ -59,11 +59,12 @@ search:
   api_key: ""                            # 对应 provider 的 API key
 
 # Skills（per-agent 技能开关）
-# 新助手默认开启：cdp-browser-guide（浏览器远程调试引导）、media-local-tools（本地媒体）
+# 新助手默认开启：cdp-browser-guide（浏览器远程调试引导）、media-local-tools（本地媒体）、desk-required-rules（仅用户明确要求时写入必读规则）
 skills:
   enabled:
     - cdp-browser-guide
     - media-local-tools
+    - desk-required-rules
 
 # 频道系统（agent 间协作通信；为 false 时服务端不启动 channelTicker，须开 UI 频道开关或 POST /api/channels/toggle）
 channels:

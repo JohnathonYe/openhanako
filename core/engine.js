@@ -34,7 +34,7 @@ const WELL_KNOWN_SKILL_PATHS = [
 
 const allBuiltInTools = [...codingTools, grepTool, findTool, lsTool];
 
-import { syncSkills } from "./first-run.js";
+import { syncSkills, migrateDeskRequiredRulesSkill } from "./first-run.js";
 import { PreferencesManager } from "./preferences-manager.js";
 import { ModelManager } from "./model-manager.js";
 import { SkillManager } from "./skill-manager.js";
@@ -778,6 +778,13 @@ export class HanaEngine {
     this._skills.init(this._resourceLoader, this._agentMgr.agents, HIDDEN_SKILLS);
     const extCount = this._skills.allSkills.filter(s => s.source === "external").length;
     log(`[init] 3/5 ResourceLoader 完成 (${Date.now() - t_rl}ms, ${this._skills.allSkills.length} skills${extCount ? `, ${extCount} external` : ""})`);
+
+    migrateDeskRequiredRulesSkill({
+      hanakoHome: this.hanakoHome,
+      skillsDir,
+      agents: this._agentMgr.agents,
+      syncAgentSkills: (ag) => this._skills.syncAgentSkills(ag),
+    });
 
     this._resourceLoader.getSystemPrompt = () => this.agent.systemPrompt;
     this._resourceLoader.getSkills = () => this._getSkillsForAgent(this.agent);

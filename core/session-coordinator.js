@@ -157,6 +157,14 @@ export class SessionCoordinator {
       }
     }
 
+    // setMemoryEnabled 在 _session 切换前调用，此时 buildSystemPrompt 读到的是旧 cwd。
+    // 会话 cwd 已写入 SessionManager 后再刷新，使 ## 书桌 / .rules 与工具一致。
+    try {
+      creatingAgent.refreshSystemPrompt();
+    } catch (err) {
+      log.warn(`refreshSystemPrompt after createSession: ${err.message}`);
+    }
+
     return session;
   }
 
@@ -192,7 +200,16 @@ export class SessionCoordinator {
       this._session = existing.session;
       existing.lastTouchedAt = Date.now();
       const targetAgent = this._d.getAgentById(existing.agentId) || this._d.getAgent();
+      const primaryAgent = this._d.getAgent();
       targetAgent.setMemoryEnabled(memoryEnabled);
+      // resourceLoader 用 primary 的 systemPrompt；若与会话所属 agent 不是同一实例，需单独刷新
+      if (primaryAgent !== targetAgent) {
+        try {
+          primaryAgent.refreshSystemPrompt();
+        } catch (err) {
+          log.warn(`refreshSystemPrompt after switchSession(cache): ${err.message}`);
+        }
+      }
       return existing.session;
     }
 
