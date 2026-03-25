@@ -13,7 +13,7 @@ export default async function diaryRoute(app, { engine }) {
   /** GET /api/diary/list — 列出已有日记文件 */
   app.get("/api/diary/list", async (_req, reply) => {
     const cwd = engine.homeCwd || process.cwd();
-    const diaryDir = resolveDiaryDir(cwd);
+    const diaryDir = resolveDiaryDir(cwd, engine.agentName);
     try {
       const files = fs.readdirSync(diaryDir)
         .filter(f => f.endsWith(".md"))
