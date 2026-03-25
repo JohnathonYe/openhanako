@@ -104,7 +104,7 @@ export class SessionCoordinator {
     const { tools: sessionTools, customTools: sessionCustomTools } = await this._d.buildTools(
       effectiveCwd,
       null,
-      { workspace: this._d.getHomeCwd() },
+      { workspace: effectiveCwd },
     );
     const { session } = await createAgentSession({
       cwd: effectiveCwd,
@@ -202,13 +202,12 @@ export class SessionCoordinator {
       const targetAgent = this._d.getAgentById(existing.agentId) || this._d.getAgent();
       const primaryAgent = this._d.getAgent();
       targetAgent.setMemoryEnabled(memoryEnabled);
-      // resourceLoader 用 primary 的 systemPrompt；若与会话所属 agent 不是同一实例，需单独刷新
-      if (primaryAgent !== targetAgent) {
-        try {
-          primaryAgent.refreshSystemPrompt();
-        } catch (err) {
-          log.warn(`refreshSystemPrompt after switchSession(cache): ${err.message}`);
-        }
+      // 无论是否同一 agent，都要在切换后刷新：
+      // system prompt 中会注入“当前书桌(cwd)”与 .rules 内容。
+      try {
+        primaryAgent.refreshSystemPrompt();
+      } catch (err) {
+        log.warn(`refreshSystemPrompt after switchSession(cache): ${err.message}`);
       }
       return existing.session;
     }
@@ -620,7 +619,7 @@ export class SessionCoordinator {
       const { tools: allBuiltinTools, customTools: allCustomTools } = await this._d.buildTools(
         execCwd,
         targetAgent.tools,
-        { agentDir: targetAgent.agentDir, workspace: this._d.getHomeCwd() },
+        { agentDir: targetAgent.agentDir, workspace: execCwd },
       );
 
       const patrolAllowed = opts.toolFilter

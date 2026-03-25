@@ -863,9 +863,11 @@ export class Agent {
     parts.push(isZh
       ? `\n## 书桌\n\n` +
         `用户所说的「书桌」「工作空间」指的是你当前的工作目录（cwd），不是系统桌面（~/Desktop）。` +
+        `\n当用户要求“写入/保存/更新必读规则（Required Rules）”时，必须在当前工作目录下写入 \`.rules/*.md\` 文件；不要写到书桌根目录、项目根目录或系统桌面。` +
         (cwdPath ? `\n当前工作目录：${cwdPath}` : "")
       : `\n## Desk\n\n` +
         `When the user says "desk" (书桌) or "workspace", they mean your current working directory (cwd), NOT the system Desktop (~/Desktop).` +
+        `\nWhen the user asks to write/save/update Required Rules, you must write files under \`.rules/*.md\` in the current working directory; never write them to workspace root, project root, or system Desktop.` +
         (cwdPath ? `\nCurrent working directory: ${cwdPath}` : "")
     );
 
@@ -877,8 +879,8 @@ export class Agent {
         parts.push(...section(
           isZh ? "# 必读规则" : "# Required Rules",
           (isZh
-            ? "以下是工作空间的必读规则文档（.rules/*.md），在执行任何任务前必须遵守。\n\n"
-            : "The following are required-reading rule documents (.rules/*.md) for the workspace. You must follow them before performing any task.\n\n"
+            ? "以下是工作空间的必读规则文档（.rules/*.md），在执行任何任务前必须遵守。若需新增或修改必读规则，也只能写入当前工作目录的 .rules/*.md。\n\n"
+            : "The following are required-reading rule documents (.rules/*.md) for the workspace. You must follow them before performing any task. Any new/updated required rules must also be written only to .rules/*.md in the current working directory.\n\n"
           ) + rulesContent
         ));
       }

@@ -54,6 +54,7 @@ describe("SessionCoordinator", () => {
 
   it("applies session memory before creating the agent session", async () => {
     let sessionMemoryEnabled = true;
+    const buildTools = vi.fn(async () => ({ tools: [], customTools: [] }));
     const agent = {
       sessionDir: "/tmp/agent-sessions",
       setMemoryEnabled: vi.fn((enabled) => {
@@ -78,7 +79,7 @@ describe("SessionCoordinator", () => {
       }),
       getResourceLoader: () => resourceLoader,
       getSkills: () => null,
-      buildTools: async () => ({ tools: [], customTools: [] }),
+      buildTools,
       emitEvent: () => {},
       getHomeCwd: () => "/tmp/home",
       agentIdFromSessionPath: () => null,
@@ -96,6 +97,7 @@ describe("SessionCoordinator", () => {
     expect(agent.setMemoryEnabled).toHaveBeenCalledWith(false);
     expect(agent.refreshSystemPrompt).toHaveBeenCalledOnce();
     expect(createAgentSessionMock).toHaveBeenCalledOnce();
+    expect(buildTools).toHaveBeenCalledWith("/tmp/workspace", null, { workspace: "/tmp/workspace" });
     expect(createAgentSessionMock.mock.calls[0][0].resourceLoader.getSystemPrompt()).toBe("MEMORY OFF");
   });
 
@@ -163,5 +165,55 @@ describe("SessionCoordinator", () => {
       error: "aborted",
     });
     expect(fs.existsSync(sessionFile)).toBe(false);
+  });
+
+  it("refreshes system prompt when switching cached session within same agent", async () => {
+    const targetPath = "/tmp/same-agent-session.jsonl";
+    const session = {
+      isStreaming: false,
+      sessionManager: { getSessionFile: () => targetPath },
+    };
+    const agent = {
+      setMemoryEnabled: vi.fn(),
+      refreshSystemPrompt: vi.fn(),
+    };
+
+    const coordinator = new SessionCoordinator({
+      agentsDir: "/tmp/agents",
+      getAgent: () => agent,
+      getActiveAgentId: () => "hana",
+      getModels: () => ({
+        currentModel: { name: "test-model" },
+        authStorage: {},
+        modelRegistry: {},
+        resolveThinkingLevel: () => "medium",
+      }),
+      getResourceLoader: () => ({ getSystemPrompt: () => "prompt" }),
+      getSkills: () => null,
+      buildTools: async () => ({ tools: [], customTools: [] }),
+      emitEvent: () => {},
+      getHomeCwd: () => "/tmp/home",
+      agentIdFromSessionPath: () => null,
+      switchAgentOnly: async () => {},
+      getConfig: () => ({}),
+      getPrefs: () => ({ getThinkingLevel: () => "medium" }),
+      getAgents: () => new Map(),
+      getActivityStore: () => null,
+      getAgentById: () => agent,
+      listAgents: () => [],
+    });
+
+    coordinator.sessions.set(targetPath, {
+      session,
+      agentId: "hana",
+      memoryEnabled: true,
+      lastTouchedAt: Date.now() - 1_000,
+      unsub: vi.fn(),
+    });
+
+    await coordinator.switchSession(targetPath);
+
+    expect(agent.setMemoryEnabled).toHaveBeenCalledWith(true);
+    expect(agent.refreshSystemPrompt).toHaveBeenCalledOnce();
   });
 });
