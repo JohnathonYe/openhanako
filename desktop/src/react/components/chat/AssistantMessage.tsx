@@ -128,7 +128,7 @@ const ContentBlockView = memo(function ContentBlockView({ block, agentName, yuan
     case 'mood':
       return <MoodBlock yuan={block.yuan} text={block.text} />;
     case 'tool_group':
-      return <ToolGroupBlock tools={block.tools} collapsed={block.collapsed} />;
+      return <ToolGroupBlock tools={block.tools} collapsed={block.collapsed} agentName={agentName} />;
     case 'text':
       return <MarkdownContent html={block.html} />;
     case 'xing':

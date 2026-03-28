@@ -19,6 +19,7 @@ import { BrowserManager } from "../lib/browser/browser-manager.js";
 import { t, getLocale } from "../server/i18n.js";
 import { wrapStreamFnForInvokeXml } from "./stream-invoke-normalizer.js";
 import { filterImagesForModelInput } from "../lib/model-media-capabilities.js";
+import { runWithSessionPath } from "../lib/tools/session-path-context.js";
 
 const log = createModuleLogger("session");
 
@@ -298,7 +299,7 @@ export class SessionCoordinator {
       this._d.applyPlanDraftTodoOnly(sp);
     }
     try {
-      await this._session.prompt(effectiveText, promptOpts);
+      await runWithSessionPath(sp, () => this._session.prompt(effectiveText, promptOpts));
     } finally {
       if (planDraft && sp) {
         this._d.syncSessionToolsToPlanMode(sp);
@@ -341,7 +342,7 @@ export class SessionCoordinator {
       this._d.applyPlanDraftTodoOnly(sessionPath);
     }
     try {
-      await entry.session.prompt(text, promptOpts);
+      await runWithSessionPath(sessionPath, () => entry.session.prompt(text, promptOpts));
     } finally {
       if (planDraft) {
         this._d.syncSessionToolsToPlanMode(sessionPath);

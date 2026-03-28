@@ -34,6 +34,7 @@ import { createServiceHandoffTool } from "../lib/tools/service-handoff-tool.js";
 import { createBridgeMessageOwnerTool } from "../lib/tools/bridge-message-owner-tool.js";
 import { createCreateScriptTool } from "../lib/tools/create-script-tool.js";
 import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
+import { getExecutingSessionPath } from "../lib/tools/session-path-context.js";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import { runCompatChecks } from "../lib/compat/index.js";
 
@@ -262,8 +263,11 @@ export class Agent {
     this._cronTool = createCronTool(this._cronStore, {
       getAutoApprove: () => this._config?.desk?.cron_auto_approve !== false,
       confirmStore: this._engine?.confirmStore,
-      emitEvent: (event) => this._engine?._emitEvent(event, this._engine?._sessionCoord?.currentSessionPath),
-      getSessionPath: () => this._engine?._sessionCoord?.currentSessionPath,
+      emitEvent: (event) => {
+        const sp = getExecutingSessionPath() || this._engine?._sessionCoord?.currentSessionPath;
+        this._engine?._emitEvent(event, sp);
+      },
+      getSessionPath: () => getExecutingSessionPath() || this._engine?._sessionCoord?.currentSessionPath,
     });
     this._presentFilesTool = createPresentFilesTool();
     this._artifactTool = createArtifactTool();
@@ -282,8 +286,11 @@ export class Agent {
     this._updateSettingsTool = createUpdateSettingsTool({
       getEngine: () => this._engine,
       getConfirmStore: () => this._engine?.confirmStore,
-      getSessionPath: () => this._engine?._sessionCoord?.currentSessionPath,
-      emitEvent: (event) => this._engine?._emitEvent(event, this._engine?._sessionCoord?.currentSessionPath),
+      getSessionPath: () => getExecutingSessionPath() || this._engine?._sessionCoord?.currentSessionPath,
+      emitEvent: (event) => {
+        const sp = getExecutingSessionPath() || this._engine?._sessionCoord?.currentSessionPath;
+        this._engine?._emitEvent(event, sp);
+      },
     });
 
     // 9. 频道工具 + 私信工具（需要 channelsDir 和 agentsDir）

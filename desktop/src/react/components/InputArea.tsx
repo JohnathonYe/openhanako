@@ -315,7 +315,8 @@ function InputAreaInner() {
     }
 
     appendOptimisticUserMessage(displayText ?? text, null);
-    ws.send(JSON.stringify({ type: 'prompt', text }));
+    const sp = useStore.getState().currentSessionPath;
+    ws.send(JSON.stringify({ type: 'prompt', text, ...(sp ? { sessionPath: sp } : {}) }));
     return true;
   }, [pendingNewSession]);
 
@@ -863,6 +864,8 @@ function InputAreaInner() {
       }
 
       const wsMsg: Record<string, unknown> = { type: 'prompt', text: finalText };
+      const _sp = useStore.getState().currentSessionPath;
+      if (_sp) wsMsg.sessionPath = _sp;
       if (images.length > 0) wsMsg.images = images;
       if (isPlanSlash) {
         wsMsg.planDraft = true;
@@ -972,7 +975,8 @@ function InputAreaInner() {
     }
     setSessionTodos(lines.map((text, i) => ({ id: i + 1, text, done: false })));
     useStore.getState().setPlanFlowPhase('idle');
-    ws.send(JSON.stringify({ type: 'prompt', text: body }));
+    const planSp = useStore.getState().currentSessionPath;
+    ws.send(JSON.stringify({ type: 'prompt', text: body, ...(planSp ? { sessionPath: planSp } : {}) }));
   }, [pendingNewSession, setSessionTodos, t]);
 
   // ── Steer (插话) ──
@@ -988,14 +992,15 @@ function InputAreaInner() {
     appendOptimisticUserMessage(text, null);
 
     setInputText('');
-    ws.send(JSON.stringify({ type: 'steer', text }));
+    ws.send(JSON.stringify({ type: 'steer', text, ...(sp ? { sessionPath: sp } : {}) }));
   }, [inputText, isStreaming]);
 
   // ── Stop generation ──
   const handleStop = useCallback(() => {
     const ws = getWebSocket();
     if (!isStreaming || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'abort' }));
+    const abortSp = useStore.getState().currentSessionPath;
+    ws.send(JSON.stringify({ type: 'abort', ...(abortSp ? { sessionPath: abortSp } : {}) }));
   }, [isStreaming]);
 
   // ── Key handler ──
