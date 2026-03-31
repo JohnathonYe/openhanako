@@ -97,7 +97,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
       )}
       <div className={`${styles.message} ${styles.messageAssistant}`}>
         {blocks.map((block, i) => (
-          <ContentBlockView key={i} block={block} agentName={displayName} yuan={displayYuan} />
+          <ContentBlockView key={blockKey(block, i)} block={block} agentName={displayName} yuan={displayYuan} />
         ))}
         <button type="button" className={`${styles.msgCopyBtn}${copied ? ` ${styles.msgCopyBtnCopied}` : ''}`} onClick={handleCopy} title={t('common.copyText')}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -114,6 +114,13 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
     </div>
   );
 });
+
+// ── Block key：单例类型用类型名，重复类型用类型+索引 ──
+
+const SINGLETON_TYPES = new Set(['thinking', 'mood', 'text']);
+function blockKey(block: ContentBlock, idx: number): string {
+  return SINGLETON_TYPES.has(block.type) ? block.type : `${block.type}-${idx}`;
+}
 
 // ── ContentBlock 分发 ──
 

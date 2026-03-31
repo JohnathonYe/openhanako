@@ -16,6 +16,7 @@ import {
   loadModelsRegistry,
   resolveApiKeyFromAuth,
 } from "../lib/memory/config-loader.js";
+import { scanUserScriptToolIds } from "../lib/tools/registry.js";
 
 const log = createModuleLogger("config");
 
@@ -280,15 +281,16 @@ export class ConfigCoordinator {
    */
   applyPlanModeToolsToSession(session, agent, allBuiltInTools) {
     if (!session?.setActiveToolsByName) return;
+    const userToolNames = scanUserScriptToolIds(this._d.hanakoHome).map(t => t.id);
     if (this._planMode) {
       const allNames = allBuiltInTools.map(t => t.name);
       const customNames = (agent.tools || []).map(t => t.name);
-      session.setActiveToolsByName([...allNames, ...customNames]);
+      session.setActiveToolsByName([...allNames, ...customNames, ...userToolNames]);
     } else {
       const customNames = (agent.tools || [])
         .map(t => t.name)
         .filter((name) => !PLAN_MODE_ONLY_CUSTOM_TOOLS.includes(name));
-      session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames]);
+      session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames, ...userToolNames]);
     }
   }
 

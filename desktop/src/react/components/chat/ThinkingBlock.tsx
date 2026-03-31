@@ -1,5 +1,7 @@
 /**
  * ThinkingBlock — 可折叠的思考过程区块
+ *
+ * 使用 div 而非 <details>，避免原生 toggle 行为与 React 受控状态冲突。
  */
 
 import { memo, useState, useCallback } from 'react';
@@ -16,16 +18,16 @@ export const ThinkingBlock = memo(function ThinkingBlock({ content, sealed }: Pr
   const toggle = useCallback(() => setOpen(v => !v), []);
 
   return (
-    <details className={styles.thinkingBlock} open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary className={styles.thinkingBlockSummary} onClick={(e) => { e.preventDefault(); toggle(); }}>
+    <div className={styles.thinkingBlock}>
+      <div className={styles.thinkingBlockSummary} onClick={toggle}>
         <span className={`${styles.thinkingBlockArrow}${open ? ` ${styles.thinkingBlockArrowOpen}` : ''}`}>›</span>
         {' '}{sealed ? t('thinking.done') : (
           <>{t('thinking.active')}<span className={styles.thinkingDots}><span /><span /><span /></span></>
         )}
-      </summary>
+      </div>
       {open && content && (
         <div className={styles.thinkingBlockBody}>{content}</div>
       )}
-    </details>
+    </div>
   );
 });

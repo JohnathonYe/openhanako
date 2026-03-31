@@ -627,7 +627,9 @@ export class SessionCoordinator {
         || targetAgent.config?.desk?.patrol_tools
         || PATROL_TOOLS_DEFAULT;
       const allowSet = new Set(patrolAllowed);
-      const actCustomTools = allCustomTools.filter(t => allowSet.has(t.name));
+      const actCustomTools = allCustomTools.filter(t =>
+        allowSet.has(t.name) || (t.name && t.name.startsWith("user_")),
+      );
 
       // builtin tools 过滤：传入 builtinFilter 时只保留白名单内的 builtin 工具
       const actTools = opts.builtinFilter

@@ -80,6 +80,7 @@ export default async function chatRoute(app, { engine, hub }) {
         isThinking: false,
         hasOutput: false,
         hasToolCall: false,
+        hasError: false,
         titleRequested: false,
         titlePreview: "",
         ...createSessionStreamState(),
@@ -217,6 +218,7 @@ export default async function chatRoute(app, { engine, hub }) {
           }
         });
       } else if (sub === "thinking_delta") {
+        ss.hasOutput = true;
         if (!ss.isThinking) {
           ss.isThinking = true;
           emitStreamEvent(sessionPath, ss, { type: "thinking_start" });
@@ -228,6 +230,7 @@ export default async function chatRoute(app, { engine, hub }) {
       } else if (sub === "toolcall_start") {
         // 不在这里关闭 thinking 状态
       } else if (sub === "error") {
+        ss.hasError = true;
         if (isActive) broadcast({ type: "error", message: event.assistantMessageEvent.error || "Unknown error" });
       }
     } else if (event.type === "tool_execution_start") {
@@ -442,8 +445,8 @@ export default async function chatRoute(app, { engine, hub }) {
         }
       });
 
-      // 空回复检测：本轮没有文本输出也没有工具调用，提示用户检查配置
-      if (!ss.hasOutput && !ss.hasToolCall && isActive) {
+      // 空回复检测：本轮没有文本/思考输出也没有工具调用，且未收到过 error 事件
+      if (!ss.hasOutput && !ss.hasToolCall && !ss.hasError && isActive) {
         broadcast({ type: "error", message: t("error.modelNoResponse") });
       }
 
@@ -451,6 +454,7 @@ export default async function chatRoute(app, { engine, hub }) {
       finishSessionStream(ss);
       ss.hasOutput = false;
       ss.hasToolCall = false;
+      ss.hasError = false;
       ss.thinkTagParser.reset();
       ss.moodParser.reset();
       ss.xingParser.reset();
@@ -463,6 +467,9 @@ export default async function chatRoute(app, { engine, hub }) {
       if (isActive) broadcast({ type: "compaction_start" });
     } else if (event.type === "auto_compaction_end") {
       if (isActive) {
+        if (event.errorMessage) {
+          broadcast({ type: "error", message: event.errorMessage });
+        }
         const usage = engine.session?.getContextUsage?.();
         broadcast({
           type: "compaction_end",

@@ -18,6 +18,12 @@
 
 const TAGS = ["mood", "pulse", "reflect"];
 
+/** 模型常见的错误关闭标签变体（按长度降序，优先匹配最长） */
+const CLOSE_TAG_ALTS = {
+  reflect: ["</reflection>"],
+  mood: ["</moods>"],
+};
+
 /** 检查 buffer 末尾是否是 target 的前缀（1..target.length-1 个字符），返回匹配长度 */
 function trailingPrefixLen(buffer, target) {
   const maxCheck = Math.min(buffer.length, target.length - 1);
@@ -103,6 +109,42 @@ export class MoodParser {
     return max;
   }
 
+  /**
+   * 在 buffer 中找到最早的关闭标签（含变体），返回 { idx, tag } 或 null。
+   * 必须独立搜索每个变体——"</reflect>" 不是 "</reflection>" 的子串。
+   */
+  _findCloseTag() {
+    const primary = `</${this._currentTag}>`;
+    const alts = CLOSE_TAG_ALTS[this._currentTag];
+    let bestIdx = -1;
+    let bestTag = null;
+    const idx = this.buffer.indexOf(primary);
+    if (idx !== -1) { bestIdx = idx; bestTag = primary; }
+    if (alts) {
+      for (const alt of alts) {
+        const ai = this.buffer.indexOf(alt);
+        if (ai !== -1 && (bestIdx === -1 || ai < bestIdx)) { bestIdx = ai; bestTag = alt; }
+      }
+    }
+    return bestTag ? { idx: bestIdx, tag: bestTag } : null;
+  }
+
+  /**
+   * 计算关闭标签（含变体）在 buffer 末尾的最大前缀匹配长度
+   */
+  _closeTrailingHold() {
+    const primary = `</${this._currentTag}>`;
+    let max = trailingPrefixLen(this.buffer, primary);
+    const alts = CLOSE_TAG_ALTS[this._currentTag];
+    if (alts) {
+      for (const alt of alts) {
+        const h = trailingPrefixLen(this.buffer, alt);
+        if (h > max) max = h;
+      }
+    }
+    return max;
+  }
+
   /** 内部：尽可能多地从 buffer 中提取完整事件 */
   _drain(emit) {
     while (this.buffer.length > 0) {
@@ -136,21 +178,20 @@ export class MoodParser {
         emit({ type: "text", data: this.buffer });
         this.buffer = "";
       } else {
-        // 寻找对应的关闭标签
-        const closeTag = `</${this._currentTag}>`;
-        const idx = this.buffer.indexOf(closeTag);
-        if (idx !== -1) {
-          const content = this.buffer.slice(0, idx);
+        // 寻找对应的关闭标签（含变体如 </reflection>）
+        const found = this._findCloseTag();
+        if (found) {
+          const content = this.buffer.slice(0, found.idx);
           if (content) emit({ type: "mood_text", data: content });
           emit({ type: "mood_end" });
           this.inMood = false;
           this._justEndedMood = true;
-          this.buffer = this.buffer.slice(idx + closeTag.length);
+          this.buffer = this.buffer.slice(found.idx + found.tag.length);
           this._currentTag = null;
           continue;
         }
-        // buffer 末尾可能是关闭标签的前缀
-        const moodHoldLen = trailingPrefixLen(this.buffer, closeTag);
+        // buffer 末尾可能是关闭标签（含变体）的前缀
+        const moodHoldLen = this._closeTrailingHold();
         if (moodHoldLen > 0) {
           const safe = this.buffer.slice(0, -moodHoldLen);
           if (safe) emit({ type: "mood_text", data: safe });
@@ -165,17 +206,22 @@ export class MoodParser {
 }
 
 /**
- * ThinkTagParser — 拦截 <think>...</think> 标签（DeepSeek / Qwen 等模型的文本内思考格式）
+ * ThinkTagParser — 拦截 <think>/<thinking> 标签（DeepSeek / Qwen 等模型的文本内思考格式）
  *
  * 链在 MoodParser 之前（最外层），输出事件流：
  *   think_start / think_text { data } / think_end
  *   text { data } — 非 think 内容透传
  */
+
+const THINK_OPEN_TAGS = ["<think>", "<thinking>"];
+const THINK_CLOSE_TAGS = ["</think>", "</thinking>"];
+
 export class ThinkTagParser {
   constructor() {
     this.inThink = false;
     this.buffer = "";
     this._justEnded = false;
+    this._closeTag = "</think>"; // 匹配当前打开标签的关闭形式
   }
 
   feed(delta, emit) {
@@ -198,6 +244,51 @@ export class ThinkTagParser {
     this.inThink = false;
     this.buffer = "";
     this._justEnded = false;
+    this._closeTag = "</think>";
+  }
+
+  /** 在 buffer 中找最早的 open tag，返回 { idx, tag } 或 null */
+  _findOpenTag() {
+    let best = null;
+    for (const tag of THINK_OPEN_TAGS) {
+      const idx = this.buffer.indexOf(tag);
+      if (idx !== -1 && (best === null || idx < best.idx)) {
+        best = { idx, tag };
+      }
+    }
+    return best;
+  }
+
+  /** 所有 open tag 在 buffer 末尾的最大前缀长度 */
+  _openTrailingHold() {
+    let max = 0;
+    for (const tag of THINK_OPEN_TAGS) {
+      const h = trailingPrefixLen(this.buffer, tag);
+      if (h > max) max = h;
+    }
+    return max;
+  }
+
+  /** 找最早的 close tag（含变体），返回 { idx, tag } 或 null */
+  _findCloseTag() {
+    let best = null;
+    for (const tag of THINK_CLOSE_TAGS) {
+      const idx = this.buffer.indexOf(tag);
+      if (idx !== -1 && (best === null || idx < best.idx)) {
+        best = { idx, tag };
+      }
+    }
+    return best;
+  }
+
+  /** 所有 close tag 在 buffer 末尾的最大前缀长度 */
+  _closeTrailingHold() {
+    let max = 0;
+    for (const tag of THINK_CLOSE_TAGS) {
+      const h = trailingPrefixLen(this.buffer, tag);
+      if (h > max) max = h;
+    }
+    return max;
   }
 
   _drain(emit) {
@@ -210,18 +301,28 @@ export class ThinkTagParser {
       }
 
       if (!this.inThink) {
-        const openTag = "<think>";
-        const idx = this.buffer.indexOf(openTag);
-        if (idx !== -1) {
-          const before = this.buffer.slice(0, idx);
+        const found = this._findOpenTag();
+        if (found) {
+          const before = this.buffer.slice(0, found.idx);
           if (before) emit({ type: "text", data: before });
           emit({ type: "think_start" });
           this.inThink = true;
-          this.buffer = this.buffer.slice(idx + openTag.length);
+          this.buffer = this.buffer.slice(found.idx + found.tag.length);
           continue;
         }
-        // buffer 末尾可能是 <think> 的前缀
-        const holdLen = trailingPrefixLen(this.buffer, openTag);
+        // 游离的关闭标签（模型重复输出或嵌套不匹配）→ 静默吃掉
+        const stray = this._findCloseTag();
+        if (stray) {
+          const before = this.buffer.slice(0, stray.idx);
+          if (before) emit({ type: "text", data: before });
+          this.buffer = this.buffer.slice(stray.idx + stray.tag.length);
+          this.buffer = this.buffer.replace(/^\n+/, "");
+          continue;
+        }
+        // buffer 末尾可能是 open 或 stray close tag 的前缀
+        let holdLen = this._openTrailingHold();
+        const closeHold = this._closeTrailingHold();
+        if (closeHold > holdLen) holdLen = closeHold;
         if (holdLen > 0) {
           const safe = this.buffer.slice(0, -holdLen);
           if (safe) emit({ type: "text", data: safe });
@@ -231,18 +332,17 @@ export class ThinkTagParser {
         emit({ type: "text", data: this.buffer });
         this.buffer = "";
       } else {
-        const closeTag = "</think>";
-        const idx = this.buffer.indexOf(closeTag);
-        if (idx !== -1) {
-          const content = this.buffer.slice(0, idx);
+        const found = this._findCloseTag();
+        if (found) {
+          const content = this.buffer.slice(0, found.idx);
           if (content) emit({ type: "think_text", data: content });
           emit({ type: "think_end" });
           this.inThink = false;
           this._justEnded = true;
-          this.buffer = this.buffer.slice(idx + closeTag.length);
+          this.buffer = this.buffer.slice(found.idx + found.tag.length);
           continue;
         }
-        const holdLen = trailingPrefixLen(this.buffer, closeTag);
+        const holdLen = this._closeTrailingHold();
         if (holdLen > 0) {
           const safe = this.buffer.slice(0, -holdLen);
           if (safe) emit({ type: "think_text", data: safe });
