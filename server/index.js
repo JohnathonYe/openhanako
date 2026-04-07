@@ -46,6 +46,8 @@ import { ConfirmStore } from "../lib/confirm-store.js";
 import { BridgeManager } from "../lib/bridge/bridge-manager.js";
 import { Hub } from "../hub/index.js";
 import { startCLI } from "./cli.js";
+import { BrowserManager } from "../lib/browser/browser-manager.js";
+import { rollbackTurn, getTurnInfo } from "../lib/tools/file-change-tracker.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -83,8 +85,7 @@ await engine.init((msg) => console.log(`[server] ${msg}`));
 console.log("[server] ② engine.init 完成");
 dlog.log("server", "engine initialized");
 
-// 注入 session 解析器给 BrowserManager（避免循环依赖）
-import { BrowserManager } from "../lib/browser/browser-manager.js";
+// 注入 session 解析器给 BrowserManager
 BrowserManager.setSessionResolver(() => engine.currentSessionPath);
 
 if (engine.currentModel) {
@@ -222,6 +223,30 @@ app.post("/api/plan-mode", async (req) => {
   const { enabled } = req.body || {};
   engine.setPlanMode(!!enabled);
   return { ok: true, enabled: engine.planMode };
+});
+
+// Coding Mode（ON = 精简工具 + coding prompt，OFF = 恢复聊天模式）
+app.get("/api/coding-mode", async () => ({
+  enabled: engine.codingMode,
+  cwd: engine.cwd || null,
+}));
+app.post("/api/coding-mode", async (req) => {
+  const { enabled } = req.body || {};
+  engine.setCodingMode(!!enabled);
+  return { ok: true, enabled: engine.codingMode };
+});
+
+// Revert file changes from a specific turn
+app.post("/api/revert", async (req) => {
+  const { turnId } = req.body || {};
+  if (!turnId) return { ok: false, error: "turnId required" };
+  const result = await rollbackTurn(String(turnId));
+  return result;
+});
+
+app.get("/api/revert/:turnId", async (req) => {
+  const info = getTurnInfo(String(req.params.turnId));
+  return info || { count: 0, files: [] };
 });
 
 // 远程关闭（供 desktop 端复用 server 退出时调用，跨平台可靠的 graceful shutdown）

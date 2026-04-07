@@ -5,7 +5,7 @@ import fs from "fs/promises";
 import path from "path";
 import { t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
-import { isToolCallBlock, getToolArgs } from "../../core/llm-utils.js";
+import { isToolCallBlock, getToolArgs, normalizeToolCallContent } from "../../core/llm-utils.js";
 
 /**
  * 从 Pi SDK 的 content 块数组中提取纯文本 + thinking + tool_use 调用
@@ -57,9 +57,49 @@ function extractTextContent(content, { stripThink = false } = {}) {
           if (params[k] !== undefined) args[k] = params[k];
         }
       }
-      return { name: block.name, args: Object.keys(args).length ? args : undefined };
+      const use = { name: block.name };
+      if (Object.keys(args).length) use.args = args;
+      const callId = block.id ?? block.tool_call_id;
+      if (callId != null && callId !== "") use.toolCallId = String(callId);
+      return use;
     });
   return { text, thinking, toolUses, images };
+}
+
+/**
+ * 将 Pi 持久化的 toolResult 消息合并进最近一条含对应 tool 的 assistant（用于历史里展示 diff 等 details）
+ */
+function mergeToolResultIntoAssistantChain(allMessages, toolResultMsg) {
+  const tr = toolResultMsg;
+  if (!tr || tr.role !== "toolResult") return;
+  const toolCallId = tr.toolCallId != null && tr.toolCallId !== "" ? String(tr.toolCallId) : null;
+  const toolName = tr.toolName || "";
+  const details = tr.details && typeof tr.details === "object" ? tr.details : undefined;
+
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    const m = allMessages[i];
+    if (m.role !== "assistant" || !m.toolCalls?.length) continue;
+    const calls = m.toolCalls;
+    let idx = -1;
+    if (toolCallId) {
+      idx = calls.findIndex(c => c.toolCallId === toolCallId);
+    }
+    if (idx < 0 && toolName) {
+      idx = calls.findIndex(c => c.details === undefined && c.success === undefined && c.name === toolName);
+    }
+    if (idx < 0) {
+      idx = calls.findIndex(c => c.details === undefined && c.success === undefined);
+    }
+    if (idx < 0) continue;
+
+    const prev = calls[idx];
+    calls[idx] = {
+      ...prev,
+      ...(details !== undefined ? { details } : {}),
+      success: tr.isError !== true,
+    };
+    return;
+  }
 }
 
 /**
@@ -153,7 +193,8 @@ export default async function sessionsRoute(app, { engine }) {
           const { text, images } = extractTextContent(m.content);
           if (text || images.length) allMessages.push({ id: String(globalIdx++), role: "user", content: text, images: images.length ? images : undefined });
         } else if (m.role === "assistant") {
-          const { text, thinking, toolUses } = extractTextContent(m.content, { stripThink: true });
+          const contentNorm = normalizeToolCallContent(m.content);
+          const { text, thinking, toolUses } = extractTextContent(contentNorm, { stripThink: true });
           if (text || toolUses.length) {
             allMessages.push({
               id: String(globalIdx++),
@@ -177,6 +218,7 @@ export default async function sessionsRoute(app, { engine }) {
               language: d.language,
             });
           }
+          mergeToolResultIntoAssistantChain(allMessages, m);
         }
       }
 

@@ -807,6 +807,215 @@
     color: var(--coral);
 }
 
+/* ── Diff 变更视图 ── */
+
+.diffView {
+    margin: 0.35rem 0 0.15rem 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.55;
+    max-width: 100%;
+}
+
+.diffHeader {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--overlay-subtle);
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.diffHeader:hover {
+    background: var(--tool-bg);
+}
+
+.diffToggle {
+    font-size: 0.6rem;
+    width: 0.8em;
+    flex-shrink: 0;
+}
+
+.diffFilePath {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.diffStats {
+    display: flex;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    font-weight: 500;
+}
+
+.diffStatsAdd {
+    color: var(--green);
+}
+
+.diffStatsRemove {
+    color: var(--coral);
+}
+
+.diffBody {
+    max-height: min(50vh, 24rem);
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--overlay-subtle);
+    border-top: none;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+
+.diffLine {
+    display: flex;
+    padding: 0 0.5rem;
+    min-height: 1.5em;
+    white-space: pre;
+}
+
+.diffLineAdd {
+    background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.diffLineRemove {
+    background: color-mix(in srgb, var(--coral) 12%, transparent);
+}
+
+.diffLineSkip {
+    color: var(--text-muted);
+    font-style: italic;
+    justify-content: center;
+    padding: 0.15rem 0;
+    background: var(--overlay-subtle);
+}
+
+.diffLineNum {
+    width: 3.5em;
+    text-align: right;
+    color: var(--text-muted);
+    opacity: 0.6;
+    flex-shrink: 0;
+    padding-right: 0.4rem;
+    user-select: none;
+}
+
+.diffLinePrefix {
+    width: 1.2em;
+    flex-shrink: 0;
+    text-align: center;
+    font-weight: 600;
+}
+
+.diffLineAdd .diffLinePrefix {
+    color: var(--green);
+}
+
+.diffLineRemove .diffLinePrefix {
+    color: var(--coral);
+}
+
+.diffLineContent {
+    flex: 1;
+    min-width: 0;
+}
+
+.toolGroupDiffPanel {
+    margin-top: 0.35rem;
+    padding: 0.35rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-width: 100%;
+}
+
+.toolGroupFilePathOnly {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    padding: 0.2rem 0.4rem;
+    background: var(--overlay-subtle);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.toolGroupActions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.3rem;
+}
+
+.viewChangesBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--overlay-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.viewChangesBtn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ── 回滚按钮 ── */
+
+.revertBtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    margin-top: 0.25rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--overlay-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.revertBtn:hover {
+    color: var(--coral);
+    border-color: var(--coral);
+    background: color-mix(in srgb, var(--coral) 8%, transparent);
+}
+
+.revertBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.revertBtnDone {
+    color: var(--green);
+    border-color: var(--green);
+    cursor: default;
+}
+
+.revertBtnDone:hover {
+    color: var(--green);
+    border-color: var(--green);
+    background: transparent;
+}
+
 /* ── 思考折叠块 ── */
 
 .thinkingBlock {

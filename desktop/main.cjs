@@ -67,7 +67,7 @@ function loadWindowURL(win, pageName, opts) {
     win.loadURL(url);
   } else {
     const built = path.join(_distRenderer, `${pageName}.html`);
-    if (!_isDev && fs.existsSync(built)) {
+    if (fs.existsSync(built)) {
       win.loadFile(built, opts);
     } else {
       win.loadFile(path.join(__dirname, "src", `${pageName}.html`), opts);

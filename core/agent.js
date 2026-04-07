@@ -37,6 +37,7 @@ import { READ_ONLY_BUILTIN_TOOLS } from "./config-coordinator.js";
 import { getExecutingSessionPath } from "../lib/tools/session-path-context.js";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import { runCompatChecks } from "../lib/compat/index.js";
+import { gatherProjectContext, formatProjectContextForPrompt } from "../lib/tools/project-context.js";
 
 export class Agent {
   /**
@@ -85,6 +86,7 @@ export class Agent {
     this._memorySessionEnabled = true;  // per-session 开关（WelcomeScreen toggle）
     this._enabledSkills = [];
     this._systemPrompt = "";
+    this._codingMode = false;
 
     // Desk 系统（与 memory 完全独立）
     this._deskManager = null;
@@ -548,6 +550,14 @@ export class Agent {
     this._systemPrompt = this.buildSystemPrompt();
   }
 
+  /** 切换 Coding Mode 并重建 system prompt */
+  setCodingMode(enabled) {
+    this._codingMode = !!enabled;
+    this._systemPrompt = this.buildSystemPrompt();
+  }
+
+  get codingMode() { return this._codingMode; }
+
   // ════════════════════════════
   //  配置更新
   // ════════════════════════════
@@ -674,6 +684,8 @@ export class Agent {
 
   /** 组装 system prompt */
   buildSystemPrompt() {
+    if (this._codingMode) return this._buildCodingSystemPrompt();
+
     const isZh = String(this._config.locale || "").startsWith("zh");
 
     const readFile = (filePath) => {
@@ -903,6 +915,93 @@ export class Agent {
     parts.push(isZh
       ? "你的一天从凌晨 4:00 开始。4:00 之前的对话属于前一天。"
       : "Your day starts at 4:00 AM. Conversations before 4:00 AM belong to the previous day.");
+
+    return parts.join("\n");
+  }
+
+  /** Coding Mode 专用 system prompt — 精简、面向软件工程 */
+  _buildCodingSystemPrompt() {
+    const isZh = String(this._config.locale || "").startsWith("zh");
+    const readFile = (filePath) => {
+      try { return fs.readFileSync(filePath, "utf-8"); } catch { return ""; }
+    };
+
+    const parts = [];
+
+    // 1. 身份
+    parts.push(isZh
+      ? `你是一个高效的编程助手，运行在 OpenHanako 平台上。你的任务是帮助用户完成软件工程任务：修复 bug、添加功能、重构代码、解释代码等。\n\n请简洁、直接、切中要点。所有回复保持简短，除非用户要求详细解释。不要添加不必要的开场白或总结。`
+      : `You are an efficient coding assistant running on the OpenHanako platform. Your task is to help users with software engineering tasks: fixing bugs, adding features, refactoring code, explaining code, and more.\n\nBe concise, direct, and to the point. Keep all responses short unless the user asks for detail. Do not add unnecessary preamble or summary.`
+    );
+
+    // 2. 工作流指引
+    parts.push(isZh
+      ? `\n# 工作流程\n\n执行编码任务时，按以下步骤进行：\n1. 使用搜索工具（grep、find、ls、read）理解代码库和用户需求。鼓励大量使用搜索工具，可以并行调用。\n2. 使用所有可用工具实现解决方案\n3. 如有可能，用测试验证结果。不要假设特定的测试框架——先检查 README 或搜索代码库确定测试方式\n4. 完成后，运行 lint 和类型检查命令（如 npm run lint、npm run typecheck 等）确保代码正确\n\n绝不要主动提交（commit）代码，除非用户明确要求。`
+      : `\n# Workflow\n\nWhen performing coding tasks, follow these steps:\n1. Use search tools (grep, find, ls, read) to understand the codebase and the user's query. Use search tools extensively, both in parallel and sequentially.\n2. Implement the solution using all tools available to you\n3. Verify the solution with tests if possible. NEVER assume a specific test framework — check the README or search the codebase first\n4. When done, run lint and typecheck commands (e.g. npm run lint, npm run typecheck) to ensure correctness\n\nNEVER commit changes unless the user explicitly asks you to.`
+    );
+
+    // 3. 代码风格
+    parts.push(isZh
+      ? `\n# 代码风格\n\n- 修改文件前，先理解文件的代码规范。模仿现有风格、使用已有的库和工具、遵循现有模式\n- 不要假设某个库可用——先检查项目是否已使用该库（如查看 package.json、Cargo.toml 等）\n- 创建新组件时，先查看现有组件的写法\n- 除非用户要求或代码复杂需要额外说明，不要在代码中添加注释\n- 遵循安全最佳实践，绝不引入暴露或记录密钥的代码`
+      : `\n# Code Style\n\n- Before modifying files, understand the file's code conventions. Mimic code style, use existing libraries, follow existing patterns\n- NEVER assume a library is available — check if the codebase already uses it (e.g. package.json, Cargo.toml)\n- When creating a new component, first look at existing components\n- Do not add comments unless the user asks or the code is complex and requires context\n- Follow security best practices. Never introduce code that exposes or logs secrets`
+    );
+
+    // 4. 工具使用策略
+    parts.push(isZh
+      ? `\n# 工具策略\n\n- 需要搜索代码库时，优先使用 delegate 工具以减少上下文占用\n- 如果要调用多个工具且它们之间没有依赖关系，在同一轮中并行调用所有独立的工具\n- 不要在完成任务后添加额外的代码解释总结，除非用户要求`
+      : `\n# Tool Policy\n\n- When doing file search, prefer to use the delegate tool to reduce context usage\n- If you intend to call multiple tools with no dependencies between them, make all independent calls in the same turn\n- Do not add additional code explanation summary after completing a task unless the user asks`
+    );
+
+    // 5. 项目规则文件（CLAUDE.md / .rules/*.md / .cursor/rules/*.mdc）
+    parts.push(isZh
+      ? `\n# 项目规则\n\n工作目录下的以下文件会被自动加载到上下文中：\n- \`CLAUDE.md\`（项目级指令）\n- \`.rules/*.md\`（书桌必读规则）\n- \`.cursor/rules/*.mdc\`（Cursor 规则）\n\n这些文件包含项目特定的指令、常用命令和代码规范。当你发现需要反复搜索构建/测试/lint 命令时，建议用户将这些命令添加到 CLAUDE.md。`
+      : `\n# Project Rules\n\nThe following files in the working directory are automatically loaded into context:\n- \`CLAUDE.md\` (project-level instructions)\n- \`.rules/*.md\` (workspace required rules)\n- \`.cursor/rules/*.mdc\` (Cursor rules)\n\nThese files contain project-specific instructions, frequently used commands, and code conventions. When you find yourself repeatedly searching for build/test/lint commands, suggest the user add them to CLAUDE.md.`
+    );
+
+    // 6. 项目上下文（cwd, git, 目录结构, CLAUDE.md, .cursor/rules/*.mdc）
+    const cwdPath = this._engine?.cwd || this._engine?.homeCwd || "";
+    if (cwdPath) {
+      try {
+        const ctx = gatherProjectContext(cwdPath);
+        parts.push("\n" + formatProjectContextForPrompt(ctx, isZh));
+      } catch {
+        parts.push(isZh ? `\n工作目录：${cwdPath}` : `\nWorking directory: ${cwdPath}`);
+      }
+
+      // 必读规则（.rules/*.md）—— 由 _readWorkspaceRules 统一处理，
+      // 不与 gatherProjectContext 重复（后者负责 CLAUDE.md 和 .cursor/rules/*.mdc）
+      const rulesContent = this._readWorkspaceRules(cwdPath);
+      if (rulesContent) {
+        parts.push(isZh
+          ? `\n# 必读规则\n\n以下是工作空间的必读规则（.rules/*.md）：\n\n${rulesContent}`
+          : `\n# Required Rules\n\nThe following are required-reading rules (.rules/*.md) for the workspace:\n\n${rulesContent}`
+        );
+      }
+    }
+
+    // 8. Pinned memory（项目笔记等，保留但不注入人格化规则）
+    if (this.memoryEnabled) {
+      const pinnedMd = readFile(path.join(this.agentDir, "pinned.md"));
+      if (pinnedMd.trim()) {
+        parts.push(isZh
+          ? `\n# 置顶笔记\n\n${pinnedMd}`
+          : `\n# Pinned Notes\n\n${pinnedMd}`
+        );
+      }
+    }
+
+    // 9. Skills（仅 coding 相关）
+    if (this._enabledSkills?.length > 0) {
+      parts.push(formatSkillsForPrompt(this._enabledSkills));
+    }
+
+    // 10. 日期时间
+    const now = new Date();
+    const dateTime = now.toLocaleString("en-US", {
+      weekday: "long", year: "numeric", month: "long", day: "numeric",
+      hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+    });
+    parts.push(`\nCurrent date and time: ${dateTime}`);
 
     return parts.join("\n");
   }

@@ -111,9 +111,14 @@
     "workspace": "ワークスペース：",
     "selectWorkspace": "ワークスペースを選択",
     "planMode": "コンピュータを使う",
+    "codingMode": "コーディング",
+    "codingModeTooltipOn": "コーディングモードON（クリックでOFF）",
+    "codingModeTooltipOff": "コーディングモードOFF（クリックでON）",
+    "fileChangesSummary": "{n} 件のファイルが変更されています",
+    "undoAll": "すべて元に戻す",
+    "undoAllBusy": "元に戻しています…",
     "deskContext": "デスクのコンテキスト付き",
     "pastedImage": "貼り付け画像",
-    "docContext": "ドキュメント付き",
     "thinkingLevel": {
       "off": "オフ",
       "auto": "自動",
@@ -324,7 +329,10 @@
     "countWithFail": "{total} 個のツール（{fail} 個失敗）",
     "count": "{n} 個のツール",
     "running": "{n} 個のツール実行中",
-    "expandDetail": "クリックでパラメータ全文を表示"
+    "expandDetail": "クリックでパラメータ全文を表示",
+    "viewChanges": "表示",
+    "revert": "↩ 変更を元に戻す",
+    "reverted": "✓ 元に戻しました"
   },
   "tool": {
     "web_search": {

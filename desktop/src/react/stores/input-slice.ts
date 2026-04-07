@@ -7,15 +7,9 @@ export interface AttachedFile {
   mimeType?: string;
 }
 
-export interface DocContextFile {
-  path: string;
-  name: string;
-}
-
 export interface InputSlice {
   attachedFiles: AttachedFile[];
   deskContextAttached: boolean;
-  docContextAttached: boolean;
   inputFocusTrigger: number;
   addAttachedFile: (file: AttachedFile) => void;
   removeAttachedFile: (index: number) => void;
@@ -23,8 +17,6 @@ export interface InputSlice {
   clearAttachedFiles: () => void;
   setDeskContextAttached: (attached: boolean) => void;
   toggleDeskContext: () => void;
-  setDocContextAttached: (attached: boolean) => void;
-  toggleDocContext: () => void;
   requestInputFocus: () => void;
 }
 
@@ -33,7 +25,6 @@ export const createInputSlice = (
 ): InputSlice => ({
   attachedFiles: [],
   deskContextAttached: false,
-  docContextAttached: false,
   inputFocusTrigger: 0,
   addAttachedFile: (file) =>
     set((s) => ({ attachedFiles: [...s.attachedFiles, file] })),
@@ -44,9 +35,6 @@ export const createInputSlice = (
   setDeskContextAttached: (attached) => set({ deskContextAttached: attached }),
   toggleDeskContext: () =>
     set((s) => ({ deskContextAttached: !s.deskContextAttached })),
-  setDocContextAttached: (attached) => set({ docContextAttached: attached }),
-  toggleDocContext: () =>
-    set((s) => ({ docContextAttached: !s.docContextAttached })),
   requestInputFocus: () =>
     set((s) => ({ inputFocusTrigger: s.inputFocusTrigger + 1 })),
 });

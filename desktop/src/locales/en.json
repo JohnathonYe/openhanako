@@ -116,9 +116,14 @@
     "planMode": "Use computer",
     "planModeTooltipOn": "On — click to turn off",
     "planModeTooltipOff": "Off — click to enable",
+    "codingMode": "Coding",
+    "codingModeTooltipOn": "Coding mode on — click to turn off",
+    "codingModeTooltipOff": "Coding mode off — click to enable",
+    "fileChangesSummary": "{n} file(s) changed",
+    "undoAll": "Undo all",
+    "undoAllBusy": "Undoing…",
     "deskContext": "With desk context",
     "pastedImage": "Pasted image",
-    "docContext": "With document",
     "multimodal": "Image / video / voice",
     "multimodalTooltipOn": "On — click to turn off",
     "multimodalTooltipOff": "Off — click to enable",
@@ -345,7 +350,10 @@
     "countWithFail": "{total} tools ({fail} failed)",
     "count": "{n} tools",
     "running": "{n} tools running",
-    "expandDetail": "Click to expand full parameters"
+    "expandDetail": "Click to expand full parameters",
+    "viewChanges": "View",
+    "revert": "↩ Revert changes",
+    "reverted": "✓ Reverted"
   },
   "tool": {
     "web_search": {

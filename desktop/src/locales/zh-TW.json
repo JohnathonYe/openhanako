@@ -111,9 +111,14 @@
     "workspace": "工作空間：",
     "selectWorkspace": "選擇工作空間",
     "planMode": "操作電腦",
+    "codingMode": "編程",
+    "codingModeTooltipOn": "編程模式已開啟（點擊關閉）",
+    "codingModeTooltipOff": "編程模式未開啟（點擊開啟）",
+    "fileChangesSummary": "{n} 個檔案已變更",
+    "undoAll": "全部撤銷",
+    "undoAllBusy": "撤銷中…",
     "deskContext": "看著書桌說",
     "pastedImage": "貼上圖片",
-    "docContext": "看著文件說",
     "thinkingLevel": {
       "off": "關閉",
       "auto": "自動",
@@ -324,7 +329,10 @@
     "countWithFail": "{total} 個工具（{fail} 個失敗）",
     "count": "{n} 個工具",
     "running": "{n} 個工具運行中",
-    "expandDetail": "點擊展開查看完整參數"
+    "expandDetail": "點擊展開查看完整參數",
+    "viewChanges": "查看",
+    "revert": "↩ 撤銷變更",
+    "reverted": "✓ 已撤銷"
   },
   "tool": {
     "web_search": {

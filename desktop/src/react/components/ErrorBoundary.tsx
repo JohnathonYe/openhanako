@@ -14,18 +14,20 @@ interface State {
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null, errorType: 'unknown' };
 
-  static getDerivedStateFromError(error: Error): State {
-    // 区分错误类型
-    const msg = error.message?.toLowerCase() || '';
+  static getDerivedStateFromError(error: unknown): State {
+    const msg = error instanceof Error
+      ? (error.message?.toLowerCase() || '')
+      : String(error).toLowerCase();
     if (msg.includes('fetch') || msg.includes('network') || msg.includes('abort') || msg.includes('timeout')) {
-      return { error, errorType: 'network' };
+      return { error: error instanceof Error ? error : new Error(String(error)), errorType: 'network' };
     }
-    return { error, errorType: 'render' };
+    return { error: error instanceof Error ? error : new Error(String(error)), errorType: 'render' };
   }
 
-  componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[ErrorBoundary]', error, info.componentStack);
-    window.__hanaLog?.('error', 'react', `${error.message}\n${info.componentStack}`);
+  componentDidCatch(error: unknown, info: React.ErrorInfo) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error('[ErrorBoundary]', err, info.componentStack);
+    window.__hanaLog?.('error', 'react', `${err.message}\n${info.componentStack}`);
   }
 
   handleRetry = () => {

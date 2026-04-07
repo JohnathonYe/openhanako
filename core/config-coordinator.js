@@ -29,6 +29,20 @@ export const PLAN_MODE_ONLY_CUSTOM_TOOLS = ["cdp_local_browser", "single_use_bro
 /** 仅在这些工具可用时才有意义的技能（关闭「操作电脑」时从 agent 可见技能中排除，避免模型尝试调用不可用工具） */
 export const PLAN_MODE_ONLY_SKILLS = ["cdp-browser-guide"];
 
+/** Coding Mode 允许的 custom 工具名（docs/CODING-MODE.md） */
+const CODING_MODE_CUSTOM_TOOL_NAMES = new Set([
+  "search_memory",
+  "todo",
+  "web_search",
+  "web_fetch",
+  "delegate",
+  "present_files",
+  "create_artifact",
+]);
+
+/** Coding Mode 下启用的 built-in（pi codingTools 子集 + grep/find/ls） */
+const CODING_MODE_BUILTIN_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls"]);
+
 /** 全局共享模型字段 → preferences key 映射 */
 export const SHARED_MODEL_KEYS = [
   ["utility",        "utility_model"],
@@ -56,9 +70,14 @@ export class ConfigCoordinator {
   constructor(deps) {
     this._d = deps;
     this._planMode = false;
+    this._codingMode = false;
+    /** 进入编程模式前的「操作电脑」状态，关闭编程后恢复 */
+    this._planModeBeforeCoding = false;
   }
 
   get planMode() { return this._planMode; }
+
+  get codingMode() { return this._codingMode; }
 
   // ── Home Folder ──
 
@@ -292,6 +311,54 @@ export class ConfigCoordinator {
         .filter((name) => !PLAN_MODE_ONLY_CUSTOM_TOOLS.includes(name));
       session.setActiveToolsByName([...READ_ONLY_BUILTIN_TOOLS, ...customNames, ...userToolNames]);
     }
+  }
+
+  /**
+   * 编程模式：仅开放文档约定的 built-in + custom，并包含用户脚本工具。
+   * @param {object|null} session
+   * @param {object} agent
+   * @param {Array<{ name: string }>} allBuiltInTools
+   */
+  applyCodingModeToolsToSession(session, agent, allBuiltInTools) {
+    if (!session?.setActiveToolsByName) return;
+    const userToolNames = scanUserScriptToolIds(this._d.hanakoHome).map(t => t.id);
+    const builtInNames = allBuiltInTools
+      .map(t => t.name)
+      .filter((n) => CODING_MODE_BUILTIN_NAMES.has(n));
+    const customNames = (agent.tools || [])
+      .map(t => t.name)
+      .filter((name) => CODING_MODE_CUSTOM_TOOL_NAMES.has(name));
+    session.setActiveToolsByName([...builtInNames, ...customNames, ...userToolNames]);
+  }
+
+  /**
+   * 编程模式开关：开启时强制「操作电脑」ON；关闭时恢复进入前的「操作电脑」状态。
+   * @param {boolean} enabled
+   * @param {Array<{ name: string }>} allBuiltInTools
+   */
+  setCodingMode(enabled, allBuiltInTools) {
+    const on = !!enabled;
+    const agent = this._d.getAgent();
+    const session = this._d.getSession();
+
+    if (on && !this._codingMode) {
+      this._planModeBeforeCoding = this._planMode;
+    }
+
+    this._codingMode = on;
+    agent.setCodingMode(on);
+
+    if (on) {
+      this._planMode = true;
+      this.applyCodingModeToolsToSession(session, agent, allBuiltInTools);
+    } else {
+      this._planMode = this._planModeBeforeCoding;
+      this.applyPlanModeToolsToSession(session, agent, allBuiltInTools);
+    }
+
+    this._d.emitEvent({ type: "coding_mode", enabled: this._codingMode }, null);
+    this._d.emitEvent({ type: "plan_mode", enabled: this._planMode }, null);
+    this._d.emitDevLog(`编程模式: ${this._codingMode ? "ON" : "OFF"}`, "info");
   }
 
   setPlanMode(enabled, allBuiltInTools) {

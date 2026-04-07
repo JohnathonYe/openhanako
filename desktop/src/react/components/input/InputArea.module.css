@@ -68,9 +68,8 @@
     letter-spacing: 0.02em;
 }
 
-/* 书桌目录按钮 */
-.desk-context-btn {
-    position: relative;
+/* Coding Mode 按钮 */
+.coding-mode-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
@@ -86,23 +85,18 @@
     -webkit-app-region: no-drag;
 }
 
-.desk-context-btn:hover:not(:disabled) {
+.coding-mode-btn:hover {
     color: var(--accent);
     border-color: rgba(var(--accent-rgb), 0.25);
 }
 
-.desk-context-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
+.coding-mode-btn.active {
+    color: #58a6ff;
+    background: rgba(88, 166, 255, 0.08);
+    border-color: rgba(88, 166, 255, 0.3);
 }
 
-.desk-context-btn.active {
-    color: var(--accent);
-    border-color: rgba(var(--accent-rgb), 0.3);
-    background: rgba(var(--accent-rgb), 0.06);
-}
-
-.desk-context-label {
+.coding-mode-label {
     letter-spacing: 0.02em;
 }
 

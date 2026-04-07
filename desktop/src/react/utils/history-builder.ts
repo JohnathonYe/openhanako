@@ -20,7 +20,14 @@ export interface HistoryApiResponse {
     role: string;
     content: string;
     thinking?: string;
-    toolCalls?: Array<{ name: string; args?: Record<string, unknown> }>;
+    toolCalls?: Array<{
+      name: string;
+      args?: Record<string, unknown>;
+      /** 自 session JSONL 中 toolResult 合并（write/edit 等含 diff） */
+      details?: Record<string, unknown>;
+      success?: boolean;
+      toolCallId?: string;
+    }>;
     images?: Array<{ data: string; mimeType: string }>;
   }>;
   fileOutputs?: Array<{
@@ -147,7 +154,8 @@ export function buildItemsFromHistory(data: HistoryApiResponse, options?: BuildH
               name: tc.name,
               args: tc.args,
               done: true,
-              success: true,
+              success: tc.success !== false,
+              ...(tc.details !== undefined ? { details: tc.details } : {}),
             })),
             collapsed: normalTools.length > 1,
           });

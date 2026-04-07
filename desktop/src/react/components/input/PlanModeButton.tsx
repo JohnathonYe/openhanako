@@ -25,7 +25,7 @@ export function PlanModeButton({ enabled, onToggle }: {
 
   return (
     <button
-      className={`${styles['plan-mode-btn']}${!enabled ? ` ${styles.active}` : ''}`}
+      className={`${styles['plan-mode-btn']}${enabled ? ` ${styles.active}` : ''}`}
       title={t('input.planMode')}
       onClick={handleClick}
     >

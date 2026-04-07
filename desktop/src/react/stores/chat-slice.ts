@@ -7,6 +7,8 @@ import type { ChatListItem, ChatMessage, SessionMessages } from './chat-types';
 export interface ChatSlice {
   chatSessions: Record<string, SessionMessages>;
   scrollPositions: Record<string, number>;
+  /** 本会话内已成功回滚的 turnId（用于输入栏汇总与隐藏已撤销轮次） */
+  revertedTurnIdsBySession: Record<string, Record<string, true>>;
 
   initSession: (path: string, items: ChatListItem[], hasMore: boolean) => void;
   prependItems: (path: string, items: ChatListItem[], hasMore: boolean) => void;
@@ -19,6 +21,8 @@ export interface ChatSlice {
   setLoadingMore: (path: string, loading: boolean) => void;
   clearSession: (path: string) => void;
   saveScrollPosition: (path: string, scrollTop: number) => void;
+  markTurnReverted: (sessionPath: string, turnId: string) => void;
+  markTurnsReverted: (sessionPath: string, turnIds: string[]) => void;
 }
 
 const MAX_CACHED_SESSIONS = 8;
@@ -29,6 +33,7 @@ export const createChatSlice = (
 ): ChatSlice => ({
   chatSessions: {},
   scrollPositions: {},
+  revertedTurnIdsBySession: {},
 
   initSession: (path, items, hasMore) => set((s) => {
     const sessions = { ...s.chatSessions };
@@ -137,10 +142,42 @@ export const createChatSlice = (
   clearSession: (path) => set((s) => {
     const sessions = { ...s.chatSessions };
     delete sessions[path];
-    return { chatSessions: sessions };
+    const revertedTurnIdsBySession = { ...s.revertedTurnIdsBySession };
+    delete revertedTurnIdsBySession[path];
+    return { chatSessions: sessions, revertedTurnIdsBySession };
   }),
 
   saveScrollPosition: (path, scrollTop) => set((s) => ({
     scrollPositions: { ...s.scrollPositions, [path]: scrollTop },
   })),
+
+  markTurnReverted: (sessionPath, turnId) => set((s) => {
+    const prev = s.revertedTurnIdsBySession[sessionPath] || {};
+    if (prev[turnId]) return {};
+    return {
+      revertedTurnIdsBySession: {
+        ...s.revertedTurnIdsBySession,
+        [sessionPath]: { ...prev, [turnId]: true },
+      },
+    };
+  }),
+
+  markTurnsReverted: (sessionPath, turnIds) => set((s) => {
+    const prev = s.revertedTurnIdsBySession[sessionPath] || {};
+    let next = { ...prev };
+    let changed = false;
+    for (const id of turnIds) {
+      if (!next[id]) {
+        next[id] = true;
+        changed = true;
+      }
+    }
+    if (!changed) return {};
+    return {
+      revertedTurnIdsBySession: {
+        ...s.revertedTurnIdsBySession,
+        [sessionPath]: next,
+      },
+    };
+  }),
 });

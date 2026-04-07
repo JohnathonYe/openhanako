@@ -116,9 +116,14 @@
     "planMode": "操作电脑",
     "planModeTooltipOn": "已启动（点击关闭）",
     "planModeTooltipOff": "未启动（点击开启）",
+    "codingMode": "编程",
+    "codingModeTooltipOn": "编程模式已开启（点击关闭）",
+    "codingModeTooltipOff": "编程模式未开启（点击开启）",
+    "fileChangesSummary": "{n} 个文件已变更",
+    "undoAll": "全部撤销",
+    "undoAllBusy": "撤销中…",
     "deskContext": "看着书桌说",
     "pastedImage": "粘贴图片",
-    "docContext": "看着文档说",
     "multimodal": "看图/视频/语音",
     "multimodalTooltipOn": "已启动（点击关闭）",
     "multimodalTooltipOff": "未启动（点击开启）",
@@ -345,7 +350,10 @@
     "countWithFail": "{total} 个工具（{fail} 个失败）",
     "count": "{n} 个工具",
     "running": "{n} 个工具运行中",
-    "expandDetail": "点击展开查看完整参数"
+    "expandDetail": "点击展开查看完整参数",
+    "viewChanges": "查看",
+    "revert": "↩ 撤销变更",
+    "reverted": "✓ 已撤销"
   },
   "tool": {
     "web_search": {

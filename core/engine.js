@@ -125,7 +125,13 @@ export class HanaEngine {
       getActivityStore: (id) => this.getActivityStore(id),
       getAgentById: (id) => this._agentMgr.getAgent(id),
       listAgents: () => this.listAgents(),
-      syncPlanModeToSession: () => this.setPlanMode(this.planMode),
+      syncPlanModeToSession: () => {
+        if (this._configCoord.codingMode) {
+          this.setCodingMode(true);
+        } else {
+          this.setPlanMode(this.planMode);
+        }
+      },
       applyPlanDraftTodoOnly: (sp) => this.applyPlanDraftTodoOnly(sp),
       syncSessionToolsToPlanMode: (sp) => this.syncSessionToolsToPlanMode(sp),
       flushBridgeOwnerMemory: () => this.flushBridgeOwnerMemory(),
@@ -513,6 +519,8 @@ export class HanaEngine {
   setMemoryMasterEnabled(id, v) { return this._configCoord.setMemoryMasterEnabled(id, v); }
   persistMemoryEnabled() { return this._configCoord.persistMemoryEnabled(); }
   setPlanMode(enabled) { return this._configCoord.setPlanMode(enabled, allBuiltInTools); }
+  get codingMode() { return this._configCoord.codingMode; }
+  setCodingMode(enabled) { return this._configCoord.setCodingMode(enabled, allBuiltInTools); }
 
   /** /plan 仅规划阶段：本轮仅允许 todo 工具，结束后恢复为 Plan Mode 对应工具集 */
   applyPlanDraftTodoOnly(sessionPath) {
@@ -521,12 +529,16 @@ export class HanaEngine {
     entry.session.setActiveToolsByName(["todo"]);
   }
 
-  /** 将指定 session 的工具列表恢复为当前「操作电脑」开关状态 */
+  /** 将指定 session 的工具列表恢复为当前模式（Coding / Plan Mode）对应工具集 */
   syncSessionToolsToPlanMode(sessionPath) {
     const entry = this._sessionCoord.sessions.get(sessionPath);
     if (!entry?.session) return;
     const agent = this.getAgent(entry.agentId) || this.agent;
-    this._configCoord.applyPlanModeToolsToSession(entry.session, agent, allBuiltInTools);
+    if (this._configCoord.codingMode) {
+      this._configCoord.applyCodingModeToolsToSession(entry.session, agent, allBuiltInTools);
+    } else {
+      this._configCoord.applyPlanModeToolsToSession(entry.session, agent, allBuiltInTools);
+    }
   }
   async updateConfig(p) { return this._configCoord.updateConfig(p); }
 
@@ -842,8 +854,8 @@ export class HanaEngine {
     const sandboxEnabled = this._readPreferences().sandbox !== false;
     log(`✿ 沙盒${sandboxEnabled ? "已启用" : "已关闭"}`);
 
-    // 9. 「操作电脑」每期进程启动默认开启（若已有 session 则同步工具列表并广播）
-    this.setPlanMode(true);
+    // 9. 「操作电脑」每期进程启动默认关闭（与 UI 初始态一致；若已有 session 则同步工具列表并广播）
+    this.setPlanMode(false);
 
     const totalTime = ((Date.now() - startupTimer) / 1000).toFixed(1);
     log(`✿ 初始化完成（${totalTime}s）`);

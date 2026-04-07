@@ -14,6 +14,8 @@ export interface ToolCall {
   args?: Record<string, unknown>;
   done: boolean;
   success: boolean;
+  /** Tool result details (diff for edit/write, etc.) — only available for streaming messages */
+  details?: Record<string, unknown>;
 }
 
 // ── 用户附件 ──
@@ -63,6 +65,8 @@ export interface ChatMessage {
   agentName?: string;
   agentYuan?: string;
   agentAvatarUrl?: string | null;
+  /** Server-side turn identifier for revert operations */
+  turnId?: string;
   // 通用
   timestamp?: number;
 }

@@ -111,9 +111,14 @@
     "workspace": "작업 공간: ",
     "selectWorkspace": "작업 공간 선택",
     "planMode": "컴퓨터 사용",
+    "codingMode": "코딩",
+    "codingModeTooltipOn": "코딩 모드 켜짐 — 클릭하여 끄기",
+    "codingModeTooltipOff": "코딩 모드 꺼짐 — 클릭하여 켜기",
+    "fileChangesSummary": "변경된 파일 {n}개",
+    "undoAll": "모두 취소",
+    "undoAllBusy": "취소 중…",
     "deskContext": "책상 컨텍스트 포함",
     "pastedImage": "붙여넣은 이미지",
-    "docContext": "문서 포함",
     "thinkingLevel": {
       "off": "끔",
       "auto": "자동",
@@ -324,7 +329,10 @@
     "countWithFail": "{total}개 도구 ({fail}개 실패)",
     "count": "{n}개 도구",
     "running": "{n}개 도구 실행 중",
-    "expandDetail": "클릭하여 전체 매개변수 보기"
+    "expandDetail": "클릭하여 전체 매개변수 보기",
+    "viewChanges": "보기",
+    "revert": "↩ 변경 취소",
+    "reverted": "✓ 취소됨"
   },
   "tool": {
     "web_search": {

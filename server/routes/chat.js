@@ -9,6 +9,7 @@ import { wsSend, wsParse } from "../ws-protocol.js";
 import { debugLog } from "../../lib/debug-log.js";
 import { t } from "../i18n.js";
 import { BrowserManager } from "../../lib/browser/browser-manager.js";
+import { setActiveTurn } from "../../lib/tools/file-change-tracker.js";
 import {
   createSessionStreamState,
   beginSessionStream,
@@ -450,7 +451,7 @@ export default async function chatRoute(app, { engine, hub }) {
         broadcast({ type: "error", message: t("error.modelNoResponse") });
       }
 
-      emitStreamEvent(sessionPath, ss, { type: "turn_end" });
+      emitStreamEvent(sessionPath, ss, { type: "turn_end", turnId: ss.streamId });
       finishSessionStream(ss);
       ss.hasOutput = false;
       ss.hasToolCall = false;
@@ -695,6 +696,7 @@ export default async function chatRoute(app, { engine, hub }) {
           ss.titleRequested = false;
           ss.titlePreview = "";
           beginSessionStream(ss);
+          setActiveTurn(ss.streamId);
           broadcast({ type: "status", isStreaming: true, sessionPath: promptSessionPath });
           await hub.send(promptText, {
             images: msg.images,

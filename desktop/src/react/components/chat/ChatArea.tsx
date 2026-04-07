@@ -30,14 +30,18 @@ export function ChatArea() {
 
 function PanelHost() {
   const currentPath = useStore(s => s.currentSessionPath);
-  const chatSessions = useStore(s => s.chatSessions);
+  const currentSessionReady = useStore(s => {
+    const p = s.currentSessionPath;
+    if (!p) return false;
+    const session = s.chatSessions[p];
+    return !!session && session.items.length > 0;
+  });
   const welcomeVisible = useStore(s => s.welcomeVisible);
   const [alive, setAlive] = useState<string[]>([]);
 
   // 加入 alive 列表（不重排已有位置，避免 React 移动 DOM 节点导致 scrollTop 丢失）
   useEffect(() => {
-    if (!currentPath) return;
-    if (!chatSessions[currentPath] || chatSessions[currentPath].items.length === 0) return;
+    if (!currentPath || !currentSessionReady) return;
     setAlive(prev => {
       if (prev.includes(currentPath)) return prev; // 已存在，不动
       if (prev.length >= MAX_ALIVE) {
@@ -50,7 +54,7 @@ function PanelHost() {
       }
       return [...prev, currentPath];
     });
-  }, [currentPath, chatSessions]);
+  }, [currentPath, currentSessionReady]);
 
   if (welcomeVisible || !currentPath) return null;
 
@@ -66,9 +70,10 @@ function PanelHost() {
 // ── Panel：一个 session 的原生滚动容器 ──
 
 const SCROLL_THRESHOLD = 300;
+const EMPTY_ITEMS: ChatListItem[] = [];
 
 const Panel = memo(function Panel({ path, active }: { path: string; active: boolean }) {
-  const items = useStore(s => s.chatSessions[path]?.items || []);
+  const items = useStore(s => s.chatSessions[path]?.items ?? EMPTY_ITEMS);
   const ref = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const isAtBottom = useRef(true);
@@ -147,6 +152,7 @@ const Panel = memo(function Panel({ path, active }: { path: string; active: bool
             key={item.type === 'message' ? item.data.id : `c-${i}`}
             item={item}
             prevItem={i > 0 ? items[i - 1] : undefined}
+            sessionPath={path}
           />
         ))}
         <div className={styles.sessionFooter} />
@@ -181,9 +187,10 @@ function ScrollToBottomBtn() {
 
 // ── ItemView ──
 
-const ItemView = memo(function ItemView({ item, prevItem }: {
+const ItemView = memo(function ItemView({ item, prevItem, sessionPath }: {
   item: ChatListItem;
   prevItem?: ChatListItem;
+  sessionPath: string;
 }) {
   if (item.type === 'compaction') {
     return <CompactionNotice yuan={item.yuan} />;
@@ -194,5 +201,5 @@ const ItemView = memo(function ItemView({ item, prevItem }: {
   if (msg.role === 'user') {
     return <UserMessage message={msg} showAvatar={showAvatar} />;
   }
-  return <AssistantMessage message={msg} showAvatar={showAvatar} />;
+  return <AssistantMessage message={msg} showAvatar={showAvatar} sessionPath={sessionPath} />;
 });

@@ -263,14 +263,18 @@ class StreamBufferManager {
       case 'tool_end':
         useStore.getState().updateLastAssistantMessage(sessionPath, (m) => {
           const blocks = [...(m.blocks || [])];
-          // 从后往前找含该 tool 名且未 done 的
           for (let i = blocks.length - 1; i >= 0; i--) {
             if (blocks[i].type !== 'tool_group') continue;
             const tg = blocks[i] as Extract<ContentBlock, { type: 'tool_group' }>;
             const toolIdx = tg.tools.findIndex(t => t.name === msg.name && !t.done);
             if (toolIdx >= 0) {
               const tools = [...tg.tools];
-              tools[toolIdx] = { ...tools[toolIdx], done: true, success: !!msg.success };
+              tools[toolIdx] = {
+                ...tools[toolIdx],
+                done: true,
+                success: !!msg.success,
+                details: msg.details ?? undefined,
+              };
               const allDone = tools.every(t => t.done);
               blocks[i] = { ...tg, tools, collapsed: allDone && tools.length > 1 };
               return { ...m, blocks };
@@ -371,7 +375,12 @@ class StreamBufferManager {
 
       case 'turn_end':
         this.flush(buf);
-        // 清理 buffer
+        if (msg.turnId) {
+          useStore.getState().updateLastAssistantMessage(sessionPath, (m) => ({
+            ...m,
+            turnId: msg.turnId,
+          }));
+        }
         buf.textAcc = '';
         buf.thinkingAcc = '';
         buf.moodAcc = '';

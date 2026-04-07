@@ -35,6 +35,7 @@ import type { ThinkingLevel } from '../stores/model-slice';
 import type { AttachedFile } from '../stores/input-slice';
 import { showHanaToast } from '../utils/hana-toast';
 import { TodoDisplay } from './input/TodoDisplay';
+import { collectPendingFileChanges } from '../utils/file-change-collect';
 
 // ── 斜杠命令 ──
 
@@ -194,6 +195,76 @@ function appendOptimisticUserMessage(displayText: string, files: AttachedFile[] 
   useStore.getState().appendItem(path, { type: 'message', data: msg });
 }
 
+const EMPTY_ITEMS: import('../stores/chat-types').ChatListItem[] = [];
+
+/** 输入框上方：本会话 AI 变更文件汇总 + 全部撤销 */
+function SessionFileChangesBar({ sessionPath }: { sessionPath: string | null }) {
+  const { t } = useI18n();
+  const items = useStore(s => (sessionPath ? s.chatSessions[sessionPath]?.items : null) ?? EMPTY_ITEMS);
+  const reverted = useStore(s => (sessionPath ? s.revertedTurnIdsBySession[sessionPath] : undefined));
+  const pending = useMemo(() => collectPendingFileChanges(items, reverted), [items, reverted]);
+  const [undoing, setUndoing] = useState(false);
+
+  const handleUndoAll = useCallback(async () => {
+    if (undoing || !sessionPath) return;
+    const rawItems = useStore.getState().chatSessions[sessionPath]?.items ?? [];
+    const rev = useStore.getState().revertedTurnIdsBySession[sessionPath];
+    const { turnIdsOrdered } = collectPendingFileChanges(rawItems, rev);
+    if (turnIdsOrdered.length === 0) return;
+    setUndoing(true);
+    try {
+      const okIds: string[] = [];
+      for (const tid of [...turnIdsOrdered].reverse()) {
+        try {
+          const res = await hanaFetch('/api/revert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ turnId: tid }),
+          });
+          const data = await res.json();
+          if (data.ok) okIds.push(tid);
+        } catch { /* continue */ }
+      }
+      if (okIds.length) useStore.getState().markTurnsReverted(sessionPath, okIds);
+    } finally {
+      setUndoing(false);
+    }
+  }, [sessionPath, undoing]);
+
+  if (!sessionPath || pending.paths.length === 0) return null;
+
+  const summary = tSafe(t, 'input.fileChangesSummary', '{n} file(s) changed', { n: pending.paths.length });
+  const maxChips = 10;
+  const chips = pending.paths.slice(0, maxChips);
+  const rest = pending.paths.length - chips.length;
+
+  return (
+    <div className="session-file-changes-bar" role="status">
+      <div className="session-file-changes-bar-row">
+        <span className="session-file-changes-bar-summary">{summary}</span>
+        <button
+          type="button"
+          className="session-file-changes-undo-all"
+          onClick={handleUndoAll}
+          disabled={undoing || pending.turnIdsOrdered.length === 0}
+        >
+          {undoing
+            ? tSafe(t, 'input.undoAllBusy', 'Undoing…')
+            : tSafe(t, 'input.undoAll', 'Undo all')}
+        </button>
+      </div>
+      <div className="session-file-changes-files">
+        {chips.map(p => (
+          <span key={p} className="session-file-changes-chip" title={p}>
+            {p.replace(/\\/g, '/').split('/').pop() || p}
+          </span>
+        ))}
+        {rest > 0 && <span className="session-file-changes-more">+{rest}</span>}
+      </div>
+    </div>
+  );
+}
+
 function InputAreaInner() {
   const { t } = useI18n();
 
@@ -205,10 +276,6 @@ function InputAreaInner() {
   const sessionTodos = useStore(s => s.sessionTodos);
   const setSessionTodos = useStore(s => s.setSessionTodos);
   const attachedFiles = useStore(s => s.attachedFiles);
-  const docContextAttached = useStore(s => s.docContextAttached);
-  const artifacts = useStore(s => s.artifacts);
-  const currentArtifactId = useStore(s => s.currentArtifactId);
-  const previewOpen = useStore(s => s.previewOpen);
   const models = useStore(s => s.models);
   const agentYuan = useStore(s => s.agentYuan);
   const thinkingLevel = useStore(s => s.thinkingLevel);
@@ -229,7 +296,9 @@ function InputAreaInner() {
 
   // Local state
   const [inputText, setInputText] = useState('');
+  /** 与 engine 默认 planMode=false 一致；挂载后 GET /api/plan-mode 与 WS plan_mode 再校准 */
   const [planMode, setPlanMode] = useState(false);
+  const [codingMode, setCodingMode] = useState(false);
   const [planTagActive, setPlanTagActive] = useState(false);
   const [planIndent, setPlanIndent] = useState(0);
   const planTagRef = useRef<HTMLSpanElement>(null);
@@ -271,18 +340,6 @@ function InputAreaInner() {
   const addAttachedFile = useStore(s => s.addAttachedFile);
   const removeAttachedFile = useStore(s => s.removeAttachedFile);
   const clearAttachedFiles = useStore(s => s.clearAttachedFiles);
-  const toggleDocContext = useStore(s => s.toggleDocContext);
-  const setDocContextAttached = useStore(s => s.setDocContextAttached);
-
-  // Doc context: current open artifact with filePath
-  const currentDoc = useMemo(() => {
-    if (!previewOpen || !currentArtifactId) return null;
-    const art = artifacts.find(a => a.id === currentArtifactId);
-    if (!art?.filePath) return null;
-    return { path: art.filePath, name: art.title || art.filePath.split('/').pop() || '' };
-  }, [previewOpen, currentArtifactId, artifacts]);
-  const hasDoc = !!currentDoc;
-
   // @ mention: resolve desk file → full path
   const resolveDeskPath = useCallback((name: string) => {
     if (!deskBasePath) return null;
@@ -480,7 +537,7 @@ function InputAreaInner() {
   }, [inputText, mentionedFiles]);
 
   // Can send?
-  const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached;
+  const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0;
   const canSend = hasContent && connected && !isStreaming;
 
   // ── Auto resize ──
@@ -690,11 +747,16 @@ function InputAreaInner() {
     e.target.value = '';
   }, [addAttachedFile, t, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps]);
 
-  // ── Load plan mode + thinking level on mount ──
+  // ── Load plan mode + coding mode + thinking level on mount ──
   useEffect(() => {
     hanaFetch('/api/plan-mode')
       .then(r => r.json())
       .then(d => setPlanMode(d.enabled ?? false))
+      .catch(() => {});
+
+    hanaFetch('/api/coding-mode')
+      .then(r => r.json())
+      .then(d => setCodingMode(d.enabled ?? false))
       .catch(() => {});
 
     hanaFetch('/api/config')
@@ -702,12 +764,18 @@ function InputAreaInner() {
       .then(d => { if (d.thinking_level) setThinkingLevel(d.thinking_level as ThinkingLevel); })
       .catch(() => {});
 
-    // Listen for WS plan_mode updates
-    const handler = (e: Event) => {
+    const planHandler = (e: Event) => {
       setPlanMode((e as CustomEvent).detail?.enabled ?? false);
     };
-    window.addEventListener('hana-plan-mode', handler);
-    return () => window.removeEventListener('hana-plan-mode', handler);
+    const codingHandler = (e: Event) => {
+      setCodingMode((e as CustomEvent).detail?.enabled ?? false);
+    };
+    window.addEventListener('hana-plan-mode', planHandler);
+    window.addEventListener('hana-coding-mode', codingHandler);
+    return () => {
+      window.removeEventListener('hana-plan-mode', planHandler);
+      window.removeEventListener('hana-coding-mode', codingHandler);
+    };
   }, []);
 
   // ── Send message ──
@@ -725,7 +793,7 @@ function InputAreaInner() {
     }
 
     const hasFiles = attachedFiles.length > 0;
-    if ((!text && !hasFiles && !docContextAttached) || !connected) return;
+    if ((!text && !hasFiles) || !connected) return;
     if (isStreaming) return; // streaming 时由 handleSteer 处理
     if (sending) return;
     setSending(true);
@@ -849,19 +917,7 @@ function InputAreaInner() {
         }
       }
 
-      // 文档上下文：把当前打开的文档路径附加到消息里
-      let docForRender: { path: string; name: string } | null = null;
-      if (docContextAttached && currentDoc) {
-        const docBlock = `[参考文档] ${currentDoc.path}`;
-        finalText = finalText ? `${finalText}\n\n${docBlock}` : docBlock;
-        docForRender = currentDoc;
-      }
-
       const filesToRender = hasFiles ? [...attachedFiles] : null;
-      const allFiles = filesToRender ? [...filesToRender] : [];
-      if (docForRender) {
-        allFiles.push({ path: docForRender.path, name: docForRender.name });
-      }
 
       const wsMsg: Record<string, unknown> = { type: 'prompt', text: finalText };
       const _sp = useStore.getState().currentSessionPath;
@@ -936,11 +992,7 @@ function InputAreaInner() {
         return;
       }
 
-      if (docContextAttached) {
-        setDocContextAttached(false);
-      }
-
-      appendOptimisticUserMessage(text, allFiles.length > 0 ? allFiles : null);
+      appendOptimisticUserMessage(text, filesToRender && filesToRender.length > 0 ? filesToRender : null);
       setInputText('');
       if (isPlanSlash) setPlanTagActive(false);
       clearAttachedFiles();
@@ -948,7 +1000,7 @@ function InputAreaInner() {
     } finally {
       setSending(false);
     }
-  }, [inputText, attachedFiles, docContextAttached, connected, isStreaming, sending, pendingNewSession, currentDoc, clearAttachedFiles, setDocContextAttached, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, planTagActive, t]);
+  }, [inputText, attachedFiles, connected, isStreaming, sending, pendingNewSession, clearAttachedFiles, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, planTagActive, t]);
 
   handleSendRef.current = handleSend;
 
@@ -1107,6 +1159,7 @@ function InputAreaInner() {
       )}
 
       <div className="input-wrapper">
+        <SessionFileChangesBar sessionPath={currentSessionPath ?? null} />
         {attachedFiles.length > 0 && (
           <AttachedFilesBar
             files={attachedFiles}
@@ -1146,11 +1199,10 @@ function InputAreaInner() {
         <div className="input-bottom-bar">
           <div className="input-actions">
             <PlanModeButton enabled={planMode} onToggle={setPlanMode} />
-            <DocContextButton
-              active={docContextAttached}
-              disabled={!hasDoc}
-              onToggle={toggleDocContext}
-            />
+            <CodingModeButton enabled={codingMode} onToggle={(v) => {
+              setCodingMode(v);
+              if (v) setPlanMode(true);
+            }} />
             <MultimodalToggleButton
               enabled={multimodalToModel}
               onToggle={toggleMultimodalToModel}
@@ -1290,30 +1342,42 @@ function PlanModeButton({ enabled, onToggle }: {
   );
 }
 
-// ── Doc Context Button ──
+// ── Coding Mode Button ──
 
-function DocContextButton({ active, disabled, onToggle }: {
-  active: boolean;
-  disabled: boolean;
-  onToggle: () => void;
+function CodingModeButton({ enabled, onToggle }: {
+  enabled: boolean;
+  onToggle: (v: boolean) => void;
 }) {
   const { t } = useI18n();
 
+  const handleClick = useCallback(async () => {
+    try {
+      const res = await hanaFetch('/api/coding-mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !enabled }),
+      });
+      const data = await res.json();
+      onToggle(data.enabled);
+    } catch (err) {
+      console.error('[coding-mode] toggle failed:', err);
+    }
+  }, [enabled, onToggle]);
+
+  const title = enabled
+    ? tSafe(t, 'input.codingModeTooltipOn', 'Coding mode on — click to turn off')
+    : tSafe(t, 'input.codingModeTooltipOff', 'Coding mode off — click to enable');
+
   return (
     <button
-      className={'desk-context-btn' + (active ? ' active' : '')}
-      title={t('input.docContext') || '看着文档说'}
-      disabled={disabled}
-      onClick={onToggle}
+      className={'coding-mode-btn' + (enabled ? ' active' : '')}
+      title={title}
+      onClick={handleClick}
     >
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <line x1="16" y1="13" x2="8" y2="13" />
-        <line x1="16" y1="17" x2="8" y2="17" />
-        <polyline points="10 9 9 9 8 9" />
+        <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
       </svg>
-      <span className="desk-context-label">{t('input.docContext') || '看着文档说'}</span>
+      <span className="coding-mode-label">{t('input.codingMode') || 'Coding'}</span>
     </button>
   );
 }

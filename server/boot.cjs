@@ -19,14 +19,24 @@
       `node=${process.version} abi=${process.versions.modules}`
     );
 
-    // 逐个检查关键 native module
-    const nativeModules = ["better-sqlite3"];
-    for (const mod of nativeModules) {
-      try {
-        require(mod);
-        console.error(`[server] ${mod}: OK`);
-      } catch (e) {
-        console.error(`[server] ${mod}: 加载失败 - ${e.message}`);
+    // better-sqlite3：require() 只加载 JS，.node 在首次 new Database() 时才 dlopen —— 必须打开内存库才是真诊断
+    try {
+      const Database = require("better-sqlite3");
+      const db = new Database(":memory:");
+      db.prepare("SELECT 1").get();
+      db.close();
+      console.error("[server] better-sqlite3: 原生绑定可加载（:memory: 探测通过）");
+    } catch (e) {
+      console.error(`[server] better-sqlite3: 原生绑定失败 - ${e.message}`);
+      if (process.platform === "darwin") {
+        console.error(
+          "[server] 提示: 若本机为 Intel Mac (arch=x64) 或 Rosetta，请在项目根执行: npx electron-rebuild -f -w better-sqlite3 --arch=x64",
+        );
+        console.error(
+          "[server] 若为 Apple 芯片 (arm64)，请执行: npm run rebuild",
+        );
+      } else {
+        console.error("[server] 提示: 请在项目根执行 npm run rebuild 以匹配当前 Electron / Node ABI");
       }
     }
 

@@ -22,9 +22,10 @@ import styles from './Chat.module.css';
 interface Props {
   message: ChatMessage;
   showAvatar: boolean;
+  sessionPath?: string;
 }
 
-export const AssistantMessage = memo(function AssistantMessage({ message, showAvatar }: Props) {
+export const AssistantMessage = memo(function AssistantMessage({ message, showAvatar, sessionPath }: Props) {
   const agentName = useStore(s => s.agentName) || 'Hanako';
   const agentYuan = useStore(s => s.agentYuan) || 'hanako';
   const agentAvatarUrl = useStore(s => s.agentAvatarUrl);
@@ -97,7 +98,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
       )}
       <div className={`${styles.message} ${styles.messageAssistant}`}>
         {blocks.map((block, i) => (
-          <ContentBlockView key={blockKey(block, i)} block={block} agentName={displayName} yuan={displayYuan} />
+          <ContentBlockView key={blockKey(block, i)} block={block} agentName={displayName} yuan={displayYuan} turnId={message.turnId} sessionPath={sessionPath} />
         ))}
         <button type="button" className={`${styles.msgCopyBtn}${copied ? ` ${styles.msgCopyBtnCopied}` : ''}`} onClick={handleCopy} title={t('common.copyText')}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -124,10 +125,12 @@ function blockKey(block: ContentBlock, idx: number): string {
 
 // ── ContentBlock 分发 ──
 
-const ContentBlockView = memo(function ContentBlockView({ block, agentName, yuan }: {
+const ContentBlockView = memo(function ContentBlockView({ block, agentName, yuan, turnId, sessionPath }: {
   block: ContentBlock;
   agentName: string;
   yuan: string;
+  turnId?: string;
+  sessionPath?: string;
 }) {
   switch (block.type) {
     case 'thinking':
@@ -135,7 +138,7 @@ const ContentBlockView = memo(function ContentBlockView({ block, agentName, yuan
     case 'mood':
       return <MoodBlock yuan={block.yuan} text={block.text} />;
     case 'tool_group':
-      return <ToolGroupBlock tools={block.tools} collapsed={block.collapsed} agentName={agentName} />;
+      return <ToolGroupBlock tools={block.tools} collapsed={block.collapsed} agentName={agentName} turnId={turnId} sessionPath={sessionPath} />;
     case 'text':
       return <MarkdownContent html={block.html} />;
     case 'xing':
