@@ -3406,6 +3406,48 @@ html[data-platform="linux"] .tb-toggle-right {
     letter-spacing: 0.02em;
 }
 
+.send-queue-mode-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    font-family: inherit;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border: 1px solid rgba(var(--accent-rgb), 0.12);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--duration) var(--ease-out);
+    -webkit-app-region: no-drag;
+}
+
+.send-queue-mode-btn:hover {
+    color: var(--accent);
+    border-color: rgba(var(--accent-rgb), 0.25);
+}
+
+.send-queue-mode-btn.active {
+    color: var(--accent);
+    border-color: rgba(var(--accent-rgb), 0.3);
+    background: rgba(var(--accent-rgb), 0.06);
+}
+
+.send-queue-mode-label {
+    letter-spacing: 0.02em;
+}
+
+.send-queue-mode-badge {
+    min-width: 1rem;
+    padding: 0 0.28rem;
+    font-size: 0.62rem;
+    line-height: 1.2;
+    color: white;
+    background: var(--accent);
+    border-radius: 999px;
+}
+
 .media-attach-btn {
     display: inline-flex;
     align-items: center;
@@ -4642,11 +4684,45 @@ body.resizing .jian-sidebar-inner {
     gap: 0.35rem 0.5rem;
 }
 
-.session-file-changes-bar-summary {
-    font-weight: 500;
-    color: var(--text);
-    flex: 1;
+.session-file-changes-review-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 1 auto;
     min-width: 0;
+    padding: 0.22rem 0.58rem;
+    font-family: inherit;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--bg) 88%, var(--text) 8%);
+    border: 1px solid color-mix(in srgb, var(--text-muted) 28%, transparent);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    -webkit-app-region: no-drag;
+}
+
+.session-file-changes-review-pill:hover {
+    background: color-mix(in srgb, var(--bg) 82%, var(--text) 12%);
+    border-color: color-mix(in srgb, var(--text-muted) 42%, transparent);
+}
+
+.session-file-changes-review-label {
+    color: color-mix(in srgb, var(--text-muted) 85%, var(--text) 15%);
+    font-weight: 500;
+}
+
+.session-file-changes-review-add {
+    color: var(--green);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.session-file-changes-review-remove {
+    color: var(--coral);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
 }
 
 .session-file-changes-undo-all {
@@ -4673,30 +4749,83 @@ body.resizing .jian-sidebar-inner {
     cursor: not-allowed;
 }
 
-.session-file-changes-files {
+/* 本会话汇总 diff 全屏查看 */
+.session-diff-review-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
     align-items: center;
-    min-width: 0;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(0, 0, 0, 0.45);
+    -webkit-app-region: no-drag;
 }
 
-.session-file-changes-chip {
-    max-width: 11rem;
+.session-diff-review-dialog {
+    display: flex;
+    flex-direction: column;
+    max-width: min(960px, 100%);
+    max-height: min(85vh, 100%);
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--overlay-subtle);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.28);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 0.1rem 0.35rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.66rem;
-    background: var(--overlay-subtle);
-    border-radius: 3px;
 }
 
-.session-file-changes-more {
-    font-size: 0.66rem;
+.session-diff-review-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.65rem 0.85rem;
+    border-bottom: 1px solid var(--overlay-subtle);
+    flex-shrink: 0;
+}
+
+.session-diff-review-title {
+    margin: 0;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.session-diff-review-close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1;
     color: var(--text-muted);
-    padding: 0 0.15rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.session-diff-review-close:hover {
+    color: var(--text);
+    background: var(--overlay-subtle);
+}
+
+.session-diff-review-body {
+    padding: 0.65rem 0.85rem;
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.session-diff-review-empty {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
 }
 
 .input-wrapper:focus-within {
@@ -4791,6 +4920,17 @@ body.resizing .jian-sidebar-inner {
 .send-btn.is-steer:hover {
     background: var(--accent);
     color: white;
+}
+.send-btn.is-queue {
+    opacity: 1;
+    cursor: pointer;
+    background: transparent;
+    color: var(--accent);
+    border-color: rgba(var(--accent-rgb), 0.45);
+}
+.send-btn.is-queue:hover {
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--accent);
 }
 
 /* ========================================

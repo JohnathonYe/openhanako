@@ -1635,16 +1635,15 @@ ipcMain.handle("select-folder", async (event) => {
 });
 
 // 选择技能文件/文件夹（支持 .zip / .skill / 文件夹）
+// 注意：不要加 extensions 过滤器。Electron 在 openFile+openDirectory 并存时，
+// 默认选「仅 zip/skill」会导致用户无法选中文件夹（设置里点击安装会失败）。
 ipcMain.handle("select-skill", async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender) || mainWindow;
   if (!win) return null;
   const result = await dialog.showOpenDialog(win, {
     properties: ["openFile", "openDirectory"],
     title: mt("dialog.selectSkill", null, "Select Skill"),
-    filters: [
-      { name: "Skill", extensions: ["zip", "skill"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
+    defaultPath: app.getPath("home"),
   });
   if (result.canceled || !result.filePaths.length) return null;
   return result.filePaths[0];

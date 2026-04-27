@@ -84,6 +84,7 @@
     "send": "보내기",
     "steer": "방향 전환",
     "stop": "중지",
+    "queueSend": "대기열",
     "browserScreenshot": "브라우저 스크린샷",
     "compacting": "컨텍스트 압축 중"
   },
@@ -114,9 +115,20 @@
     "codingMode": "코딩",
     "codingModeTooltipOn": "코딩 모드 켜짐 — 클릭하여 끄기",
     "codingModeTooltipOff": "코딩 모드 꺼짐 — 클릭하여 켜기",
+    "sendQueueMode": "대기 전송",
+    "sendQueueModeTooltipOn": "어시스턴트가 답하는 중: 보내기는 이 턴이 끝난 뒤 전송되도록 대기열에 넣습니다(클릭하면 조향).",
+    "sendQueueModeTooltipOff": "어시스턴트가 답하는 중: 보내기는 조향입니다(클릭하면 대기열).",
+    "sendQueuedCount": "대기 {n}개",
     "fileChangesSummary": "변경된 파일 {n}개",
     "undoAll": "모두 취소",
     "undoAllBusy": "취소 중…",
+    "undoAllDone": "{n}개 턴의 파일 변경을 되돌렸습니다.",
+    "undoAllPartial": "{total}개 중 {ok}개 턴만 되돌렸습니다. 서버에 스냅샷이 없는 턴이 있습니다(재시작 후 등).",
+    "undoAllNone": "되돌리지 못했습니다. 서버 메모리에 해당 턴의 파일 스냅샷이 없습니다(재시작 후 등).",
+    "reviewChanges": "Review",
+    "sessionDiffTitle": "세션 변경",
+    "closeDiffReview": "닫기",
+    "noDiffText": "이 변경에 사용할 수 있는 diff 텍스트가 없습니다.",
     "deskContext": "책상 컨텍스트 포함",
     "pastedImage": "붙여넣은 이미지",
     "thinkingLevel": {
@@ -332,7 +344,10 @@
     "expandDetail": "클릭하여 전체 매개변수 보기",
     "viewChanges": "보기",
     "revert": "↩ 변경 취소",
-    "reverted": "✓ 취소됨"
+    "reverted": "✓ 취소됨",
+    "revertDone": "변경을 되돌렸습니다.",
+    "revertDoneCount": "파일 변경 {n}건을 되돌렸습니다.",
+    "revertFailed": "되돌리지 못했습니다."
   },
   "tool": {
     "web_search": {

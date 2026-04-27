@@ -9,9 +9,27 @@ import { extractToolDetail, extractToolDetailFull } from '../../utils/message-pa
 import type { ToolCall } from '../../stores/chat-types';
 import { DiffView } from './DiffView';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
+import { useI18n } from '../../hooks/use-i18n';
+import { showHanaToast } from '../../utils/hana-toast';
 import { toolFilePath } from '../../utils/file-change-collect';
 
 const FILE_MOD_TOOLS = new Set(['write', 'edit', 'edit-diff']);
+
+function tSafe(
+  t: (k: string, v?: Record<string, string | number>) => string,
+  key: string,
+  fallback: string,
+  vars?: Record<string, string | number>,
+) {
+  const v = vars ? t(key, vars) : t(key);
+  if (v !== key) return v;
+  if (!vars) return fallback;
+  let out = fallback;
+  for (const [k, val] of Object.entries(vars)) {
+    out = out.replaceAll(`{${k}}`, String(val));
+  }
+  return out;
+}
 
 function toolDiffString(tool: ToolCall): string | null {
   const d = tool.details?.diff;
@@ -36,6 +54,7 @@ function getToolLabel(name: string, phase: string, agentNameOverride?: string): 
 }
 
 export const ToolGroupBlock = memo(function ToolGroupBlock({ tools, collapsed: initialCollapsed, agentName, turnId, sessionPath }: Props) {
+  const { t } = useI18n();
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const toggle = useCallback(() => setCollapsed(v => !v), []);
   const [reverted, setReverted] = useState(false);
@@ -64,14 +83,33 @@ export const ToolGroupBlock = memo(function ToolGroupBlock({ tools, collapsed: i
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ turnId }),
       });
-      const data = await res.json();
+      const data = (await res.json()) as { ok?: boolean; error?: string; count?: number };
       if (data.ok) {
         setReverted(true);
         useStore.getState().markTurnReverted(sessionPath, turnId);
+        const n = typeof data.count === 'number' && data.count > 0 ? data.count : null;
+        showHanaToast(
+          n != null
+            ? tSafe(t, 'toolGroup.revertDoneCount', 'Reverted {n} file change(s).', { n })
+            : tSafe(t, 'toolGroup.revertDone', 'Changes reverted.'),
+          'success',
+        );
+      } else {
+        const err = data.error ? ` ${data.error}` : '';
+        showHanaToast(
+          `${tSafe(t, 'toolGroup.revertFailed', 'Could not revert changes.')}${err}`,
+          'error',
+        );
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showHanaToast(
+        `${tSafe(t, 'toolGroup.revertFailed', 'Could not revert changes.')} ${msg}`,
+        'error',
+      );
+    }
     setReverting(false);
-  }, [turnId, reverting, effectiveReverted, sessionPath]);
+  }, [turnId, reverting, effectiveReverted, sessionPath, t]);
 
   const _t = window.t ?? ((p: string) => p);
   let summaryText = '';

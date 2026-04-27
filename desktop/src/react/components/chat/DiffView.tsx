@@ -10,39 +10,12 @@
 
 import { memo, useState, useCallback } from 'react';
 import styles from './Chat.module.css';
+import { parseDiffLines } from '../../utils/diff-parse';
 
 interface DiffViewProps {
   /** 统一 diff 文本；非字符串时组件不渲染，避免历史数据异常导致崩溃 */
   diff: unknown;
   filePath?: string;
-}
-
-interface DiffLine {
-  type: 'add' | 'remove' | 'context' | 'skip';
-  lineNum: string;
-  content: string;
-}
-
-function parseDiffLines(raw: string): DiffLine[] {
-  if (!raw) return [];
-  return raw.split('\n').map(line => {
-    if (line.startsWith('+')) {
-      const rest = line.slice(1);
-      const m = rest.match(/^(\s*\d+)\s(.*)$/);
-      return { type: 'add', lineNum: m?.[1]?.trim() ?? '', content: m?.[2] ?? rest };
-    }
-    if (line.startsWith('-')) {
-      const rest = line.slice(1);
-      const m = rest.match(/^(\s*\d+)\s(.*)$/);
-      return { type: 'remove', lineNum: m?.[1]?.trim() ?? '', content: m?.[2] ?? rest };
-    }
-    if (line.trimEnd().endsWith('...')) {
-      return { type: 'skip', lineNum: '', content: '···' };
-    }
-    const rest = line.slice(1);
-    const m = rest.match(/^(\s*\d+)\s(.*)$/);
-    return { type: 'context', lineNum: m?.[1]?.trim() ?? '', content: m?.[2] ?? rest };
-  });
 }
 
 function asDiffString(raw: unknown): string {

@@ -113,7 +113,6 @@ function seedDefaultAgent(agentsDir, productDir) {
 export function syncSkills(srcDir, dstDir) {
   fs.mkdirSync(dstDir, { recursive: true });
 
-  const srcNames = new Set();
   const entries = fs.readdirSync(srcDir, { withFileTypes: true });
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
@@ -123,20 +122,12 @@ export function syncSkills(srcDir, dstDir) {
 
     if (!fs.existsSync(path.join(skillSrc, "SKILL.md"))) continue;
 
-    srcNames.add(entry.name);
     copyDirSync(skillSrc, skillDst);
   }
 
-  // 清理目标目录中源已移除的内置技能（仅删带 SKILL.md 的目录，不动 learned-skills 等）
-  try {
-    for (const entry of fs.readdirSync(dstDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-      if (srcNames.has(entry.name)) continue;
-      const candidate = path.join(dstDir, entry.name);
-      if (!fs.existsSync(path.join(candidate, "SKILL.md"))) continue;
-      fs.rmSync(candidate, { recursive: true, force: true });
-    }
-  } catch {}
+  // 不再删除「目标里存在、但 skills2set 里没有」的 SKILL.md 目录：
+  // 用户通过设置/API 安装到 ~/.hanako/skills/<name>/ 的技能也会被误删（install 后 reloadSkills → syncSkills 会立刻清空）。
+  // 若将来要从产物里移除内置技能，可改为仅删除带 .hanako-bundled 标记的目录。
 }
 
 /**

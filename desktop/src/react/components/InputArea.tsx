@@ -12,30 +12,27 @@ import { ensureSession } from '../stores/session-actions';
 import { getWebSocket } from '../services/websocket';
 import { waitDiaryWsOnce } from '../services/diary-ws';
 import { streamBufferManager } from '../hooks/use-stream-buffer';
-import { renderMarkdown } from '../utils/markdown';
-import type { ChatMessage, UserAttachment } from '../stores/chat-types';
+import { executePromptSend, appendOptimisticUserMessage } from './input/execute-prompt-send';
 import {
   countMediaAttachments,
   guessMediaMimeType,
   isAudioFile,
   isImageFile,
-  isMediaAttachment,
   isVideoFile,
   MAX_AUDIO_BYTES,
   MAX_IMAGE_BYTES,
   MAX_MEDIA_ATTACHMENTS,
   MAX_VIDEO_BYTES,
-  MAX_WS_MESSAGE_BYTES,
 } from '../utils/format';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { useI18n } from '../hooks/use-i18n';
 import { buildMediaAcceptAttr, isMimeAllowedForModelInput } from '../utils/model-media';
-import { mediaKindsFromPayloadImages } from '../../../../lib/media-reject-heuristic.js';
 import type { ThinkingLevel } from '../stores/model-slice';
 import type { AttachedFile } from '../stores/input-slice';
 import { showHanaToast } from '../utils/hana-toast';
 import { TodoDisplay } from './input/TodoDisplay';
 import { collectPendingFileChanges } from '../utils/file-change-collect';
+import { DiffView } from './chat/DiffView';
 
 // ── 斜杠命令 ──
 
@@ -107,48 +104,8 @@ const tSafe = (
 };
 
 const MULTIMODAL_STORAGE_KEY = 'hana-multimodal-to-model';
+const SEND_QUEUE_MODE_STORAGE_KEY = 'hana-send-queue-mode';
 
-/** base64 字符串解码后的近似字节数（用于发送前体积校验） */
-function approxDecodedBase64Bytes(b64: string): number {
-  if (!b64) return 0;
-  let pad = 0;
-  if (b64.endsWith('==')) pad = 2;
-  else if (b64.endsWith('=')) pad = 1;
-  return Math.max(0, Math.floor((b64.length * 3) / 4) - pad);
-}
-
-function maxBytesForMediaMime(mimeType: string): number {
-  if (mimeType.startsWith('video/')) return MAX_VIDEO_BYTES;
-  if (mimeType.startsWith('audio/')) return MAX_AUDIO_BYTES;
-  return MAX_IMAGE_BYTES;
-}
-
-/** 与 server chat 路由一致：去掉 ;codecs=… 等参数，避免白名单校验失败 */
-function normalizeMimeForSend(mime: string): string {
-  const base = mime.split(';')[0].trim().toLowerCase();
-  if (base === 'image/jpg') return 'image/jpeg';
-  if (base === 'video/x-quicktime') return 'video/quicktime';
-  return base;
-}
-
-/** 粘贴/选择器生成的假路径，不写进会话历史（重载后无法读盘） */
-function isEphemeralAttachmentPath(p: string): boolean {
-  const base = p.replace(/\\/g, '/').split('/').pop() || p;
-  return base.startsWith('picked-') || base.startsWith('clipboard-');
-}
-
-/** 可写入会话文本的绝对路径：历史里用 `[附件]` 回显，文件删除则聊天区不展示该卡片 */
-function isPersistableLocalPathForHistory(p: string): boolean {
-  if (!p || typeof p !== 'string' || isEphemeralAttachmentPath(p)) return false;
-  if (p.startsWith('/')) return true;
-  return /^[A-Za-z]:[\\/]/.test(p);
-}
-
-/**
- * 媒体发送排查日志：
- * - Vite 开发：`import.meta.env.DEV`
- * - 任意环境：`localStorage.setItem('hana-debug-media','1')` 后刷新
- */
 function formatBlockedMediaKinds(blocked: Array<'image' | 'video' | 'audio'>): string {
   const loc = typeof window !== 'undefined' && window.i18n?.locale?.startsWith('en') ? 'en' : 'zh';
   const isEn = loc === 'en';
@@ -160,50 +117,35 @@ function formatBlockedMediaKinds(blocked: Array<'image' | 'video' | 'audio'>): s
   return blocked.map(k => map[k] || k).join(isEn ? ', ' : '、');
 }
 
-function shouldLogMediaDebug(): boolean {
-  try {
-    const viteDev = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
-    if (viteDev) return true;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('hana-debug-media') === '1') return true;
-  } catch { /* ignore */ }
-  return false;
-}
-
-function attachedFilesToUserAttachments(files: AttachedFile[] | null | undefined): UserAttachment[] | undefined {
-  if (!files?.length) return undefined;
-  return files.map(f => ({
-    path: f.path,
-    name: f.name,
-    isDir: !!f.isDirectory,
-    base64Data: f.base64Data,
-    mimeType: f.mimeType,
-  }));
-}
-
-/** 乐观追加用户气泡（旧 HanaModules.chatRender.addUserMessage） */
-function appendOptimisticUserMessage(displayText: string, files: AttachedFile[] | null | undefined) {
-  const path = useStore.getState().currentSessionPath;
-  if (!path) return;
-  const id = `local-${Date.now()}`;
-  const msg: ChatMessage = {
-    id,
-    role: 'user',
-    text: displayText,
-    textHtml: displayText ? renderMarkdown(displayText) : undefined,
-    attachments: attachedFilesToUserAttachments(files),
-  };
-  useStore.getState().appendItem(path, { type: 'message', data: msg });
-}
+/** 流式进行中：待发 prompt 快照（会话切换时丢弃） */
+type PendingPromptSend = {
+  sessionPath: string;
+  displayText: string;
+  mentionedFiles: Array<{ name: string; path: string }>;
+  attachedFiles: AttachedFile[];
+  planTagActive: boolean;
+  multimodalToModel: boolean;
+};
 
 const EMPTY_ITEMS: import('../stores/chat-types').ChatListItem[] = [];
 
-/** 输入框上方：本会话 AI 变更文件汇总 + 全部撤销 */
+/** 输入框上方：本会话 AI 变更 Review（汇总 +/- 行数）+ 全部撤销；点击查看全部 diff */
 function SessionFileChangesBar({ sessionPath }: { sessionPath: string | null }) {
   const { t } = useI18n();
   const items = useStore(s => (sessionPath ? s.chatSessions[sessionPath]?.items : null) ?? EMPTY_ITEMS);
   const reverted = useStore(s => (sessionPath ? s.revertedTurnIdsBySession[sessionPath] : undefined));
   const pending = useMemo(() => collectPendingFileChanges(items, reverted), [items, reverted]);
   const [undoing, setUndoing] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (!reviewOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setReviewOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [reviewOpen]);
 
   const handleUndoAll = useCallback(async () => {
     if (undoing || !sessionPath) return;
@@ -214,6 +156,7 @@ function SessionFileChangesBar({ sessionPath }: { sessionPath: string | null }) 
     setUndoing(true);
     try {
       const okIds: string[] = [];
+      const failHints: string[] = [];
       for (const tid of [...turnIdsOrdered].reverse()) {
         try {
           const res = await hanaFetch('/api/revert', {
@@ -221,47 +164,131 @@ function SessionFileChangesBar({ sessionPath }: { sessionPath: string | null }) 
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ turnId: tid }),
           });
-          const data = await res.json();
+          const data = (await res.json()) as { ok?: boolean; error?: string };
           if (data.ok) okIds.push(tid);
-        } catch { /* continue */ }
+          else if (data.error) failHints.push(String(data.error));
+        } catch (e) {
+          failHints.push(e instanceof Error ? e.message : String(e));
+        }
       }
+      const total = turnIdsOrdered.length;
       if (okIds.length) useStore.getState().markTurnsReverted(sessionPath, okIds);
+
+      if (okIds.length === total) {
+        showHanaToast(
+          tSafe(t, 'input.undoAllDone', 'Reverted {n} turn(s).', { n: okIds.length }),
+          'success',
+        );
+      } else if (okIds.length > 0) {
+        showHanaToast(
+          tSafe(t, 'input.undoAllPartial', 'Reverted {ok} of {total} turn(s). Others had no server file snapshot (e.g. after server restart).', {
+            ok: okIds.length,
+            total,
+          }),
+          'success',
+        );
+      } else {
+        const hint = failHints[0]
+          ? ` ${failHints[0]}`
+          : '';
+        showHanaToast(
+          `${tSafe(
+            t,
+            'input.undoAllNone',
+            'Nothing was reverted: the server has no in-memory file snapshot for these turns (often after restart).',
+          )}${hint}`,
+          'error',
+        );
+      }
     } finally {
       setUndoing(false);
     }
-  }, [sessionPath, undoing]);
+  }, [sessionPath, undoing, t]);
 
   if (!sessionPath || pending.paths.length === 0) return null;
 
-  const summary = tSafe(t, 'input.fileChangesSummary', '{n} file(s) changed', { n: pending.paths.length });
-  const maxChips = 10;
-  const chips = pending.paths.slice(0, maxChips);
-  const rest = pending.paths.length - chips.length;
+  const reviewLabel = tSafe(t, 'input.reviewChanges', 'Review');
+  const dialogTitle = tSafe(t, 'input.sessionDiffTitle', 'Session changes');
 
   return (
-    <div className="session-file-changes-bar" role="status">
-      <div className="session-file-changes-bar-row">
-        <span className="session-file-changes-bar-summary">{summary}</span>
-        <button
-          type="button"
-          className="session-file-changes-undo-all"
-          onClick={handleUndoAll}
-          disabled={undoing || pending.turnIdsOrdered.length === 0}
-        >
-          {undoing
-            ? tSafe(t, 'input.undoAllBusy', 'Undoing…')
-            : tSafe(t, 'input.undoAll', 'Undo all')}
-        </button>
+    <>
+      <div className="session-file-changes-bar" role="status">
+        <div className="session-file-changes-bar-row">
+          <button
+            type="button"
+            className="session-file-changes-review-pill"
+            onClick={() => setReviewOpen(true)}
+            aria-haspopup="dialog"
+            aria-expanded={reviewOpen}
+            aria-label={`${reviewLabel} +${pending.totalAdd} -${pending.totalRemove}`}
+          >
+            <span className="session-file-changes-review-label">{reviewLabel}</span>
+            <span className="session-file-changes-review-add">+{pending.totalAdd}</span>
+            <span className="session-file-changes-review-remove">-{pending.totalRemove}</span>
+          </button>
+          <button
+            type="button"
+            className="session-file-changes-undo-all"
+            onClick={handleUndoAll}
+            disabled={undoing || pending.turnIdsOrdered.length === 0}
+          >
+            {undoing
+              ? tSafe(t, 'input.undoAllBusy', 'Undoing…')
+              : tSafe(t, 'input.undoAll', 'Undo all')}
+          </button>
+        </div>
       </div>
-      <div className="session-file-changes-files">
-        {chips.map(p => (
-          <span key={p} className="session-file-changes-chip" title={p}>
-            {p.replace(/\\/g, '/').split('/').pop() || p}
-          </span>
-        ))}
-        {rest > 0 && <span className="session-file-changes-more">+{rest}</span>}
-      </div>
-    </div>
+      {reviewOpen &&
+        createPortal(
+          <div
+            className="session-diff-review-overlay"
+            onClick={() => setReviewOpen(false)}
+            role="presentation"
+          >
+            <div
+              className="session-diff-review-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="session-diff-review-title"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="session-diff-review-head">
+                <h2 id="session-diff-review-title" className="session-diff-review-title">
+                  {dialogTitle}
+                </h2>
+                <button
+                  type="button"
+                  className="session-diff-review-close"
+                  onClick={() => setReviewOpen(false)}
+                  aria-label={tSafe(t, 'input.closeDiffReview', 'Close')}
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="session-diff-review-body">
+                {pending.diffEntries.length === 0 ? (
+                  <p className="session-diff-review-empty">
+                    {tSafe(
+                      t,
+                      'input.noDiffText',
+                      'No diff text is available for these changes.',
+                    )}
+                  </p>
+                ) : (
+                  pending.diffEntries.map((e, i) => (
+                    <DiffView
+                      key={`${e.filePath}-${i}`}
+                      diff={e.diff}
+                      filePath={e.filePath || undefined}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -335,6 +362,28 @@ function InputAreaInner() {
       return false;
     }
   });
+
+  /** 开启时：助手流式输出中点发送为「排队」，等本轮结束再发 prompt；关闭时为「插话」 */
+  const [sendQueueMode, setSendQueueMode] = useState(() => {
+    try {
+      return localStorage.getItem(SEND_QUEUE_MODE_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const pendingSendQueueRef = useRef<PendingPromptSend[]>([]);
+  const [queuedSendCount, setQueuedSendCount] = useState(0);
+  const flushQueuedSendRef = useRef(false);
+
+  const toggleSendQueueMode = useCallback(() => {
+    setSendQueueMode((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(SEND_QUEUE_MODE_STORAGE_KEY, next ? '1' : '0');
+      } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   // Zustand actions
   const addAttachedFile = useStore(s => s.addAttachedFile);
@@ -783,7 +832,6 @@ function InputAreaInner() {
     const text = inputText.trim();
     const isPlanSlash = planTagActive;
 
-    // 斜杠命令拦截
     if (text.startsWith('/') && slashMenuOpen && filteredCommands.length > 0) {
       const cmd = filteredCommands[slashSelected] || filteredCommands[0];
       if (cmd) {
@@ -794,215 +842,124 @@ function InputAreaInner() {
 
     const hasFiles = attachedFiles.length > 0;
     if ((!text && !hasFiles) || !connected) return;
-    if (isStreaming) return; // streaming 时由 handleSteer 处理
+    if (isStreaming) return;
     if (sending) return;
     setSending(true);
 
     try {
-      if (pendingNewSession) {
-        const ok = await ensureSession();
-        if (!ok) return;
+      const ok = await executePromptSend({
+        displayText: text,
+        mentionedFiles,
+        attachedFiles: attachedFiles.map(f => ({ ...f })),
+        planTagActive: isPlanSlash,
+        multimodalToModel,
+        pendingNewSession,
+        t,
+      });
+      if (ok) {
+        setInputText('');
+        if (isPlanSlash) setPlanTagActive(false);
+        clearAttachedFiles();
+        setMentionedFiles([]);
       }
-
-      // 分离可发给模型的媒体 vs 路径类附件（是否被上游接受由 Pi / 模型 input 决定）
-      const mediaFiles = hasFiles ? attachedFiles.filter(f => isMediaAttachment(f)) : [];
-      const pathOnlyMedia = !multimodalToModel && hasFiles ? mediaFiles : [];
-      const mediaForModel = multimodalToModel ? mediaFiles : [];
-      const otherFiles = hasFiles ? attachedFiles.filter(f => !isMediaAttachment(f)) : [];
-
-      let finalText = text;
-      // @ mentions: replace @filename with full path inline
-      for (const mf of mentionedFiles) {
-        if (finalText.includes(`@${mf.name}`)) {
-          finalText = finalText.split(`@${mf.name}`).join(mf.path);
-        }
-      }
-      const pathParts: string[] = [
-        ...otherFiles.map(f => (f.isDirectory ? `[目录] ${f.path}` : `[附件] ${f.path}`)),
-        ...pathOnlyMedia.map(f => `[附件] ${f.path}`),
-      ];
-      // 多模态 inline 发送时仍把「真实磁盘路径」追加进会话文本，便于历史里按路径回显；假路径不写
-      if (multimodalToModel && mediaForModel.length > 0) {
-        const seen = new Set(pathParts);
-        for (const f of mediaForModel) {
-          if (!isPersistableLocalPathForHistory(f.path)) continue;
-          const line = `[附件] ${f.path}`;
-          if (!seen.has(line)) {
-            seen.add(line);
-            pathParts.push(line);
-          }
-        }
-      }
-      if (pathParts.length > 0) {
-        const fileBlock = pathParts.join('\n');
-        finalText = finalText ? `${finalText}\n\n${fileBlock}` : fileBlock;
-      }
-
-      // Pi SDK 使用 ImageContent：视频/音频也用 type: 'image' + 对应 mime，由 provider 映射为 inlineData / data URL
-      const readB64 = (window as any).platform?.readFileBase64 ?? (window as any).hana?.readFileBase64;
-      const images: Array<{ type: 'image'; data: string; mimeType: string }> = [];
-      const extraPathFromCaps: string[] = [];
-      if (multimodalToModel && mediaForModel.length > 0) {
-        if (mediaForModel.length > MAX_MEDIA_ATTACHMENTS) {
-          showHanaToast(tSafe(t, 'input.mediaTooMany', `最多 ${MAX_MEDIA_ATTACHMENTS} 个媒体附件`), 'error');
-          return;
-        }
-        for (const img of mediaForModel) {
-          try {
-            let base64: string | null | undefined;
-            let mimeType: string | undefined;
-            if (img.base64Data && img.mimeType) {
-              base64 = img.base64Data;
-              mimeType = img.mimeType;
-            } else if (readB64) {
-              base64 = await readB64(img.path);
-              mimeType = guessMediaMimeType(img.name) || undefined;
-            }
-            if (base64 && mimeType) {
-              const mimeNorm = normalizeMimeForSend(mimeType);
-              const maxBytes = maxBytesForMediaMime(mimeNorm);
-              if (approxDecodedBase64Bytes(base64) > maxBytes) {
-                const msg = mimeNorm.startsWith('video/')
-                  ? tSafe(t, 'input.videoTooLarge', '单个视频不得超过 20MB')
-                  : mimeNorm.startsWith('audio/')
-                    ? tSafe(t, 'input.audioTooLarge', '单条语音不得超过 20MB')
-                    : tSafe(t, 'input.imageTooLarge', '单张图片不得超过 10MB');
-                showHanaToast(msg, 'error');
-                return;
-              }
-              if (applyModelMediaCaps && !isMimeAllowedForModelInput(mimeNorm, currentModelInfo?.input)) {
-                extraPathFromCaps.push(`[附件] ${img.name}`);
-                continue;
-              }
-              images.push({ type: 'image', data: base64, mimeType: mimeNorm });
-            } else {
-              // 已开启多模态则必须走 inline 通道；勿静默降级为纯路径（否则模型只能 read_file）
-              showHanaToast(
-                tSafe(
-                  t,
-                  'input.mediaReadFailed',
-                  '无法读取该媒体为 Base64，未发送。请检查文件是否存在，或关闭多模态开关改为仅发送路径。',
-                ),
-                'error',
-              );
-              return;
-            }
-          } catch {
-            showHanaToast(
-              tSafe(
-                t,
-                'input.mediaReadFailed',
-                '读取附件失败，未发送。请重试或关闭多模态开关改为仅发送路径。',
-              ),
-              'error',
-            );
-            return;
-          }
-        }
-      }
-      if (extraPathFromCaps.length) {
-        const block = extraPathFromCaps.join('\n');
-        finalText = finalText ? `${finalText}\n\n${block}` : block;
-      }
-
-      if (shouldLogMediaDebug()) {
-        const vids = attachedFiles.filter(f => isVideoFile(f.name));
-        if (vids.length > 0) {
-          console.log('[InputArea] video in tray → ws payload', {
-            multimodalToModel,
-            videoNames: vids.map(v => v.name),
-            imagesInPayload: images.length,
-            pathOnlyVideos: pathOnlyMedia.filter(f => isVideoFile(f.name)).map(f => f.name),
-          });
-        }
-      }
-
-      const filesToRender = hasFiles ? [...attachedFiles] : null;
-
-      const wsMsg: Record<string, unknown> = { type: 'prompt', text: finalText };
-      const _sp = useStore.getState().currentSessionPath;
-      if (_sp) wsMsg.sessionPath = _sp;
-      if (images.length > 0) wsMsg.images = images;
-      if (isPlanSlash) {
-        wsMsg.planDraft = true;
-        useStore.getState().setPlanFlowPhase('draft_sent');
-      }
-
-      let payloadStr: string;
-      try {
-        payloadStr = JSON.stringify(wsMsg);
-      } catch {
-        showHanaToast(tSafe(t, 'input.serializeFailed', '消息序列化失败，附件可能过大'), 'error');
-        return;
-      }
-      if (payloadStr.length > MAX_WS_MESSAGE_BYTES) {
-        showHanaToast(
-          tSafe(
-            t,
-            'input.payloadTooLarge',
-            '整包消息超过传输上限（多为视频/语音 Base64），请减少附件或关闭多模态仅发路径。',
-          ),
-          'error',
-        );
-        return;
-      }
-
-      if (shouldLogMediaDebug()) {
-        console.log('[InputArea] ws.send prompt', {
-          textLen: finalText.length,
-          mediaSlots: images.length,
-          mimes: images.map(i => i.mimeType),
-          approxDecodedBytes: images.map(i => approxDecodedBase64Bytes(i.data)),
-          jsonChars: payloadStr.length,
-        });
-      }
-
-      const ws = getWebSocket();
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        showHanaToast(tSafe(t, 'input.notConnected', '未连接服务器，无法发送'), 'error');
-        return;
-      }
-
-      const outboundKinds = images.length
-        ? mediaKindsFromPayloadImages(images.map(i => ({ mimeType: i.mimeType })))
-        : [];
-      const sp = useStore.getState().currentSessionPath;
-      const mid = currentModelInfo?.id;
-      if (sp && mid && outboundKinds.length) {
-        const blocked = outboundKinds.filter(k =>
-          useStore.getState().isSessionMediaKindRejected(sp, mid, k),
-        );
-        if (blocked.length) {
-          showHanaToast(
-            tSafe(t, 'error.sessionMediaKindCached', '本会话中该模型已确认不支持此类附件：{kinds}', {
-              kinds: formatBlockedMediaKinds(blocked),
-            }),
-            'error',
-          );
-          return;
-        }
-      }
-      useStore.getState().setLastOutboundMediaKinds(outboundKinds.length ? outboundKinds : null);
-
-      try {
-        ws.send(payloadStr);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        showHanaToast(tSafe(t, 'input.sendFailed', '发送失败：') + msg, 'error');
-        return;
-      }
-
-      appendOptimisticUserMessage(text, filesToRender && filesToRender.length > 0 ? filesToRender : null);
-      setInputText('');
-      if (isPlanSlash) setPlanTagActive(false);
-      clearAttachedFiles();
-      setMentionedFiles([]);
     } finally {
       setSending(false);
     }
-  }, [inputText, attachedFiles, connected, isStreaming, sending, pendingNewSession, clearAttachedFiles, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, currentModelInfo?.id, currentModelInfo?.input, applyModelMediaCaps, mentionedFiles, planTagActive, t]);
+  }, [inputText, attachedFiles, connected, isStreaming, sending, pendingNewSession, clearAttachedFiles, slashMenuOpen, filteredCommands, slashSelected, multimodalToModel, mentionedFiles, planTagActive, t]);
 
   handleSendRef.current = handleSend;
+
+  const handleQueueEnqueue = useCallback(() => {
+    const text = inputText.trim();
+    const isPlanSlash = planTagActive;
+    if (text.startsWith('/') && slashMenuOpen && filteredCommands.length > 0) {
+      const cmd = filteredCommands[slashSelected] || filteredCommands[0];
+      if (cmd) {
+        cmd.execute();
+        return;
+      }
+    }
+    const hasFiles = attachedFiles.length > 0;
+    if ((!text && !hasFiles) || !connected) return;
+    if (!isStreaming || !sendQueueMode) return;
+    if (sending) return;
+    const sp = useStore.getState().currentSessionPath;
+    if (!sp) return;
+
+    pendingSendQueueRef.current.push({
+      sessionPath: sp,
+      displayText: text,
+      mentionedFiles: [...mentionedFiles],
+      attachedFiles: attachedFiles.map(f => ({ ...f })),
+      planTagActive: isPlanSlash,
+      multimodalToModel,
+    });
+    setQueuedSendCount(pendingSendQueueRef.current.length);
+    setInputText('');
+    if (isPlanSlash) setPlanTagActive(false);
+    clearAttachedFiles();
+    setMentionedFiles([]);
+  }, [
+    inputText,
+    planTagActive,
+    slashMenuOpen,
+    filteredCommands,
+    slashSelected,
+    attachedFiles,
+    connected,
+    isStreaming,
+    sendQueueMode,
+    sending,
+    clearAttachedFiles,
+    mentionedFiles,
+    multimodalToModel,
+  ]);
+
+  useEffect(() => {
+    pendingSendQueueRef.current = [];
+    setQueuedSendCount(0);
+  }, [currentSessionPath]);
+
+  useEffect(() => {
+    if (isStreaming) return;
+    const sp = useStore.getState().currentSessionPath;
+    if (!sp) return;
+    const q = pendingSendQueueRef.current;
+    if (q.length === 0) return;
+    if (q[0].sessionPath !== sp) {
+      pendingSendQueueRef.current = q.filter(x => x.sessionPath === sp);
+      setQueuedSendCount(pendingSendQueueRef.current.length);
+      return;
+    }
+    if (flushQueuedSendRef.current) return;
+    flushQueuedSendRef.current = true;
+    void (async () => {
+      try {
+        const item = pendingSendQueueRef.current.shift()!;
+        setQueuedSendCount(pendingSendQueueRef.current.length);
+        setSending(true);
+        try {
+          const ok = await executePromptSend({
+            displayText: item.displayText,
+            mentionedFiles: item.mentionedFiles,
+            attachedFiles: item.attachedFiles,
+            planTagActive: item.planTagActive,
+            multimodalToModel: item.multimodalToModel,
+            pendingNewSession: false,
+            t,
+          });
+          if (!ok) {
+            pendingSendQueueRef.current.unshift(item);
+            setQueuedSendCount(pendingSendQueueRef.current.length);
+          }
+        } finally {
+          setSending(false);
+        }
+      } finally {
+        flushQueuedSendRef.current = false;
+      }
+    })();
+  }, [isStreaming, currentSessionPath, t]);
 
   const handleCancelPlan = useCallback(() => {
     useStore.getState().setPlanFlowPhase('idle');
@@ -1115,12 +1072,13 @@ function InputAreaInner() {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing.current) {
       e.preventDefault();
       if (isStreaming && inputText.trim()) {
-        handleSteer();
+        if (sendQueueMode) handleQueueEnqueue();
+        else handleSteer();
       } else {
         handleSend();
       }
     }
-  }, [handleSend, handleSteer, isStreaming, inputText, slashMenuOpen, filteredCommands, slashSelected, atMenuOpen, atFilteredFiles, atSelected, handleAtSelect]);
+  }, [handleSend, handleSteer, handleQueueEnqueue, sendQueueMode, isStreaming, inputText, slashMenuOpen, filteredCommands, slashSelected, atMenuOpen, atFilteredFiles, atSelected, handleAtSelect]);
 
   return (
     <>
@@ -1207,6 +1165,11 @@ function InputAreaInner() {
               enabled={multimodalToModel}
               onToggle={toggleMultimodalToModel}
             />
+            <SendQueueModeToggleButton
+              enabled={sendQueueMode}
+              queuedCount={queuedSendCount}
+              onToggle={toggleSendQueueMode}
+            />
             {multimodalToModel && mediaAccept.length > 0 && (
               <>
                 <input
@@ -1232,10 +1195,12 @@ function InputAreaInner() {
             <ModelSelector models={models} />
             <SendButton
               isStreaming={isStreaming}
+              sendQueueMode={sendQueueMode}
               hasInput={!!inputText.trim()}
               disabled={isStreaming ? false : !canSend}
               onSend={handleSend}
               onSteer={handleSteer}
+              onQueue={handleQueueEnqueue}
               onStop={handleStop}
             />
           </div>
@@ -1407,6 +1372,37 @@ function MultimodalToggleButton({ enabled, onToggle }: {
         <polyline points="21 15 16 10 5 21" />
       </svg>
       <span className="multimodal-toggle-label">{tSafe(t, 'input.multimodal', '看图/视频/语音')}</span>
+    </button>
+  );
+}
+
+/** 流式时发送按钮为「排队」或「插话」，由本开关切换 */
+function SendQueueModeToggleButton({ enabled, queuedCount, onToggle }: {
+  enabled: boolean;
+  queuedCount: number;
+  onToggle: () => void;
+}) {
+  const { t } = useI18n();
+  const title = enabled
+    ? tSafe(t, 'input.sendQueueModeTooltipOn', '当前：助手回复结束后再发送（点击改为插话）')
+    : tSafe(t, 'input.sendQueueModeTooltipOff', '当前：流式中发送为插话（点击改为排队）');
+
+  return (
+    <button
+      type="button"
+      className={'send-queue-mode-btn' + (enabled ? ' active' : '')}
+      title={title}
+      onClick={onToggle}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 6h16M4 12h10M4 18h14" />
+      </svg>
+      <span className="send-queue-mode-label">{tSafe(t, 'input.sendQueueMode', '排队')}</span>
+      {queuedCount > 0 && (
+        <span className="send-queue-mode-badge" aria-label={tSafe(t, 'input.sendQueuedCount', '{n} 条待发', { n: queuedCount })}>
+          {queuedCount}
+        </span>
+      )}
     </button>
   );
 }
@@ -1667,24 +1663,40 @@ function AtMentionMenu({ files, selected, onSelect, onHover }: {
 
 // ── Send Button ──
 
-function SendButton({ isStreaming, hasInput, disabled, onSend, onSteer, onStop }: {
+function SendButton({ isStreaming, sendQueueMode, hasInput, disabled, onSend, onSteer, onQueue, onStop }: {
   isStreaming: boolean;
+  sendQueueMode: boolean;
   hasInput: boolean;
   disabled: boolean;
   onSend: () => void;
   onSteer: () => void;
+  onQueue: () => void;
   onStop: () => void;
 }) {
   const { t } = useI18n();
 
-  // 三态：发送 / 插话 / 停止
-  const mode = isStreaming ? (hasInput ? 'steer' : 'stop') : 'send';
+  // 四态：发送 / 排队 / 插话 / 停止
+  const mode = !isStreaming
+    ? 'send'
+    : hasInput
+      ? (sendQueueMode ? 'queue' : 'steer')
+      : 'stop';
 
   return (
     <button
-      className={'send-btn' + (mode === 'steer' ? ' is-steer' : mode === 'stop' ? ' is-streaming' : '')}
+      className={
+        'send-btn'
+        + (mode === 'steer' ? ' is-steer' : '')
+        + (mode === 'queue' ? ' is-queue' : '')
+        + (mode === 'stop' ? ' is-streaming' : '')
+      }
       disabled={disabled}
-      onClick={mode === 'steer' ? onSteer : mode === 'stop' ? onStop : onSend}
+      onClick={
+        mode === 'queue' ? onQueue
+        : mode === 'steer' ? onSteer
+        : mode === 'stop' ? onStop
+        : onSend
+      }
     >
       {mode === 'send' && (
         <span className="send-label">
@@ -1692,6 +1704,14 @@ function SendButton({ isStreaming, hasInput, disabled, onSend, onSteer, onStop }
             <polyline points="9 10 4 15 9 20" /><path d="M20 4v7a4 4 0 01-4 4H4" />
           </svg>
           <span className="send-label-text">{t('chat.send') || '发送'}</span>
+        </span>
+      )}
+      {mode === 'queue' && (
+        <span className="send-label">
+          <svg className="send-enter-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 6h12M4 12h8M4 18h16" />
+          </svg>
+          <span className="send-label-text">{tSafe(t, 'chat.queueSend', '排队')}</span>
         </span>
       )}
       {mode === 'steer' && (

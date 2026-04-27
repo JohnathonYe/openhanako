@@ -883,8 +883,15 @@ export class HanaEngine {
   // ════════════════════════════
 
   async buildTools(cwd, customTools, opts = {}) {
-    const disabledSet = new Set(this.getToolsDisabled());
-    const baseCt = customTools || this.agent.tools;
+    const resolvedAgent =
+      opts.agent
+      || (opts.agentDir ? this._agentMgr.findAgentByDir(opts.agentDir) : null)
+      || this.agent;
+    const agentDisabled = Array.isArray(resolvedAgent?.config?.tools?.disabled)
+      ? resolvedAgent.config.tools.disabled
+      : [];
+    const disabledSet = new Set([...this.getToolsDisabled(), ...agentDisabled]);
+    const baseCt = customTools ?? resolvedAgent?.tools ?? this.agent.tools;
     const userTools = await loadUserScriptTools(this.hanakoHome);
     const mergedCt = Array.isArray(baseCt) ? [...baseCt, ...userTools] : [...userTools];
     const ct = mergedCt.filter((t) => t && !disabledSet.has(t.name));

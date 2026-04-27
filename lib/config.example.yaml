@@ -66,6 +66,12 @@ skills:
     - media-local-tools
     - desk-required-rules
 
+# Tools（per-agent 额外禁用，与全局 preferences.tools_disabled 合并后生效）
+# 填写工具 id（与设置 → 工具列表一致），例如：web_search、channel_message
+# tools:
+#   disabled:
+#     - web_search
+
 # 频道系统（agent 间协作通信；为 false 时服务端不启动 channelTicker，须开 UI 频道开关或 POST /api/channels/toggle）
 channels:
   enabled: true                      # 是否参与频道轮转（新助手默认开；可关以省资源）

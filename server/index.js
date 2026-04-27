@@ -47,7 +47,12 @@ import { BridgeManager } from "../lib/bridge/bridge-manager.js";
 import { Hub } from "../hub/index.js";
 import { startCLI } from "./cli.js";
 import { BrowserManager } from "../lib/browser/browser-manager.js";
-import { rollbackTurn, getTurnInfo } from "../lib/tools/file-change-tracker.js";
+import {
+  rollbackTurn,
+  getTurnInfo,
+  initFileChangeSnapshotPersistence,
+  closeFileChangeSnapshotStore,
+} from "../lib/tools/file-change-tracker.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -63,6 +68,8 @@ process.env.HANA_HOME = hanakoHome;
 console.log("[server] ① ensureFirstRun...");
 ensureFirstRun(hanakoHome, productDir);
 console.log("[server] ① ensureFirstRun 完成");
+
+initFileChangeSnapshotPersistence(hanakoHome);
 
 // 在 engine.init 之前加载默认语言，以便兼容性检查（如 facts-db）中的 t() 能取到文案
 loadLocale("zh");
@@ -321,6 +328,8 @@ async function gracefulShutdown() {
   forceTimer.unref();
 
   try {
+    closeFileChangeSnapshotStore();
+
     // 1. 先停止接受新请求
     await app.close();
     console.log("[server] Fastify 已关闭");

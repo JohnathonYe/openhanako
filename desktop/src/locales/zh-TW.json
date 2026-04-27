@@ -84,6 +84,7 @@
     "send": "傳送",
     "steer": "插話",
     "stop": "停止",
+    "queueSend": "排隊",
     "browserScreenshot": "瀏覽器截圖",
     "compacting": "上下文壓縮中"
   },
@@ -114,9 +115,20 @@
     "codingMode": "編程",
     "codingModeTooltipOn": "編程模式已開啟（點擊關閉）",
     "codingModeTooltipOff": "編程模式未開啟（點擊開啟）",
+    "sendQueueMode": "排隊傳送",
+    "sendQueueModeTooltipOn": "助手正在回覆時：傳送會排隊，等本輪結束再發（點擊改為插話）",
+    "sendQueueModeTooltipOff": "助手正在回覆時：傳送為插話（點擊改為排隊）",
+    "sendQueuedCount": "待發 {n} 則",
     "fileChangesSummary": "{n} 個檔案已變更",
     "undoAll": "全部撤銷",
     "undoAllBusy": "撤銷中…",
+    "undoAllDone": "已撤銷 {n} 輪對話對應的檔案變更。",
+    "undoAllPartial": "已撤銷 {ok}/{total} 輪；其餘輪次在伺服端沒有檔案快照（常見於重啟 Hanako 後）。",
+    "undoAllNone": "未能撤銷：伺服端記憶體裡沒有這些輪次的檔案快照（常見於重啟後）。",
+    "reviewChanges": "Review",
+    "sessionDiffTitle": "本工作階段變更",
+    "closeDiffReview": "關閉",
+    "noDiffText": "這些變更沒有可用的 diff 文字。",
     "deskContext": "看著書桌說",
     "pastedImage": "貼上圖片",
     "thinkingLevel": {
@@ -332,7 +344,10 @@
     "expandDetail": "點擊展開查看完整參數",
     "viewChanges": "查看",
     "revert": "↩ 撤銷變更",
-    "reverted": "✓ 已撤銷"
+    "reverted": "✓ 已撤銷",
+    "revertDone": "已撤銷本輪檔案變更。",
+    "revertDoneCount": "已撤銷 {n} 處檔案變更。",
+    "revertFailed": "未能撤銷變更。"
   },
   "tool": {
     "web_search": {

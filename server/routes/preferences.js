@@ -4,11 +4,19 @@
  * GET  /api/preferences/models  — 读取全局模型 + 搜索配置
  * PUT  /api/preferences/models  — 更新全局模型 + 搜索配置
  * DELETE /api/preferences/tools/:id — 删除用户脚本工具（仅 user_script，并删除对应文件）
+ *
+ * GET/PUT /api/preferences/tools?agentId= — 读取/写入该助手 config.yaml 的 tools.disabled（与全局合并生效）
  */
 
 import fs from "fs";
+import path from "path";
 import { debugLog } from "../../lib/debug-log.js";
+import { saveConfig } from "../../lib/memory/config-loader.js";
 import { getUserScriptToolFilePath } from "../../lib/tools/registry.js";
+
+function validateId(id) {
+  return id && !id.includes("..") && !id.includes("/") && !id.includes("\\");
+}
 
 export default async function preferencesRoute(app, { engine }) {
 
@@ -88,12 +96,29 @@ export default async function preferencesRoute(app, { engine }) {
     }
   });
 
-  // ── 工具开关（全局 preferences.tools_disabled）──
+  // ── 工具开关：无 agentId → 全局 preferences.tools_disabled；有 agentId → 该助手 config.tools.disabled（与全局并集）──
   app.get("/api/preferences/tools", async (req, reply) => {
     try {
       const tools = engine.getToolRegistry();
-      const disabled = engine.getToolsDisabled();
-      return { tools, disabled };
+      const globalDisabled = engine.getToolsDisabled();
+      const agentId = typeof req.query?.agentId === "string" ? req.query.agentId.trim() : "";
+      if (!agentId) {
+        return { tools, disabled: globalDisabled, scope: "global" };
+      }
+      if (!validateId(agentId) || !fs.existsSync(path.join(engine.agentsDir, agentId, "config.yaml"))) {
+        reply.code(404);
+        return { error: "agent not found" };
+      }
+      const ag = engine.getAgent(agentId);
+      const agentDisabled = Array.isArray(ag?.config?.tools?.disabled) ? ag.config.tools.disabled : [];
+      const effective = [...new Set([...globalDisabled, ...agentDisabled])];
+      return {
+        tools,
+        disabled: effective,
+        globalDisabled,
+        agentDisabled,
+        scope: "agent",
+      };
     } catch (err) {
       reply.code(500);
       return { error: err.message };
@@ -107,8 +132,28 @@ export default async function preferencesRoute(app, { engine }) {
         reply.code(400);
         return { error: "invalid JSON body" };
       }
-      const disabled = Array.isArray(body.disabled) ? body.disabled : [];
-      engine.setToolsDisabled(disabled);
+      const requested = Array.isArray(body.disabled) ? body.disabled : [];
+      const agentId = typeof req.query?.agentId === "string" ? req.query.agentId.trim() : "";
+      if (!agentId) {
+        engine.setToolsDisabled(requested);
+        return { ok: true };
+      }
+      if (!validateId(agentId) || !fs.existsSync(path.join(engine.agentsDir, agentId, "config.yaml"))) {
+        reply.code(404);
+        return { error: "agent not found" };
+      }
+      const globalSet = new Set(engine.getToolsDisabled());
+      const agentOnly = [...new Set(requested)].filter((id) => !globalSet.has(id));
+      const configPath = path.join(engine.agentsDir, agentId, "config.yaml");
+      saveConfig(configPath, { tools: { disabled: agentOnly } });
+      const loadedAg = engine.getAgent(agentId);
+      if (loadedAg && engine.currentAgentId !== agentId) {
+        loadedAg.reloadConfigFromDisk();
+      }
+      if (engine.currentAgentId === agentId) {
+        await engine.updateConfig({ tools: { disabled: agentOnly } });
+      }
+      engine.invalidateAgentListCache();
       return { ok: true };
     } catch (err) {
       reply.code(500);
