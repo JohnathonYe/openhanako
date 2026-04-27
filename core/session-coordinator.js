@@ -105,7 +105,7 @@ export class SessionCoordinator {
     const { tools: sessionTools, customTools: sessionCustomTools } = await this._d.buildTools(
       effectiveCwd,
       null,
-      { workspace: effectiveCwd },
+      { workspace: effectiveCwd, agentDir: creatingAgent.agentDir },
     );
     const { session } = await createAgentSession({
       cwd: effectiveCwd,

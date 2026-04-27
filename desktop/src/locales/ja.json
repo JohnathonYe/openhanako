@@ -84,6 +84,7 @@
     "send": "送信",
     "steer": "操舵",
     "stop": "停止",
+    "queueSend": "キュー",
     "browserScreenshot": "ブラウザスクリーンショット",
     "compacting": "コンテキスト圧縮中"
   },
@@ -114,9 +115,20 @@
     "codingMode": "コーディング",
     "codingModeTooltipOn": "コーディングモードON（クリックでOFF）",
     "codingModeTooltipOff": "コーディングモードOFF（クリックでON）",
+    "sendQueueMode": "キュー送信",
+    "sendQueueModeTooltipOn": "アシスタント応答中：送信はキューに入り、このターン終了後に送ります（クリックで操舵に切替）",
+    "sendQueueModeTooltipOff": "アシスタント応答中：送信は操舵です（クリックでキューに切替）",
+    "sendQueuedCount": "待ち {n} 件",
     "fileChangesSummary": "{n} 件のファイルが変更されています",
     "undoAll": "すべて元に戻す",
     "undoAllBusy": "元に戻しています…",
+    "undoAllDone": "{n} ターン分のファイル変更を元に戻しました。",
+    "undoAllPartial": "{total} ターン中 {ok} ターンのみ元に戻しました。サーバーにスナップショットがないターンがあります（再起動後など）。",
+    "undoAllNone": "元に戻せませんでした。サーバーのメモリにこれらのターンのファイルスナップショットがありません（再起動後など）。",
+    "reviewChanges": "Review",
+    "sessionDiffTitle": "セッションの変更",
+    "closeDiffReview": "閉じる",
+    "noDiffText": "これらの変更に利用できる diff テキストがありません。",
     "deskContext": "デスクのコンテキスト付き",
     "pastedImage": "貼り付け画像",
     "thinkingLevel": {
@@ -332,7 +344,10 @@
     "expandDetail": "クリックでパラメータ全文を表示",
     "viewChanges": "表示",
     "revert": "↩ 変更を元に戻す",
-    "reverted": "✓ 元に戻しました"
+    "reverted": "✓ 元に戻しました",
+    "revertDone": "変更を元に戻しました。",
+    "revertDoneCount": "{n} 件のファイル変更を元に戻しました。",
+    "revertFailed": "元に戻せませんでした。"
   },
   "tool": {
     "web_search": {

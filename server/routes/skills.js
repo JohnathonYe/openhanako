@@ -25,7 +25,7 @@ function agentExists(engine, id) {
 function parseSkillName(skillMdPath) {
   try {
     const content = fs.readFileSync(skillMdPath, "utf-8");
-    const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    const fmMatch = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
     if (!fmMatch) return null;
     const nameMatch = fmMatch[1].match(/^name:\s*(.+)$/m);
     return nameMatch ? nameMatch[1].trim().replace(/^["']|["']$/g, "") : null;
@@ -97,7 +97,10 @@ export default async function skillsRoute(app, { engine }) {
   // ── 安装用户技能 ──
   app.post("/api/skills/install", async (req, reply) => {
     try {
-      const { path: srcPath } = req.body || {};
+      const raw = req.body || {};
+      const srcPathRaw = raw.path ?? raw.srcPath ?? raw.sourcePath;
+      const requestedAgentId = raw.agentId;
+      const srcPath = typeof srcPathRaw === "string" ? path.normalize(srcPathRaw.trim()) : "";
       if (!srcPath || !path.isAbsolute(srcPath)) {
         reply.code(400);
         return { error: t("error.skillNeedAbsolutePath") };
@@ -112,14 +115,24 @@ export default async function skillsRoute(app, { engine }) {
       const stat = fs.statSync(srcPath);
 
       let skillDir; // 最终包含 SKILL.md 的目录
+      /** 从用户磁盘上的目录安装（非 zip 临时目录），应复制而非移动 */
+      let installedFromLocalDir = false;
 
       if (stat.isDirectory()) {
-        // 直接是文件夹
-        if (!fs.existsSync(path.join(srcPath, "SKILL.md"))) {
-          reply.code(400);
-          return { error: t("error.skillMissingSkillMd") };
+        installedFromLocalDir = true;
+        if (fs.existsSync(path.join(srcPath, "SKILL.md"))) {
+          skillDir = srcPath;
+        } else {
+          const sub = fs.readdirSync(srcPath, { withFileTypes: true })
+            .filter(e => e.isDirectory() && !e.name.startsWith("."));
+          const found = sub.find(e => fs.existsSync(path.join(srcPath, e.name, "SKILL.md")));
+          if (found) {
+            skillDir = path.join(srcPath, found.name);
+          } else {
+            reply.code(400);
+            return { error: t("error.skillMissingSkillMd") };
+          }
         }
-        skillDir = srcPath;
       } else {
         // .zip 或 .skill 文件
         const ext = path.extname(srcPath).toLowerCase();
@@ -159,8 +172,16 @@ export default async function skillsRoute(app, { engine }) {
       // 解析技能名称
       const skillName = parseSkillName(path.join(skillDir, "SKILL.md"));
       if (!skillName) {
-        // 清理临时目录
-        if (skillDir !== srcPath) rmDirSync(path.dirname(skillDir) === userDir ? skillDir : path.join(userDir, ".tmp-install-" + Date.now()));
+        if (!installedFromLocalDir) {
+          let p = skillDir;
+          while (p.startsWith(userDir + path.sep) && p !== userDir) {
+            if (path.basename(p).startsWith(".tmp-install-")) {
+              rmDirSync(p);
+              break;
+            }
+            p = path.dirname(p);
+          }
+        }
         reply.code(400);
         return { error: t("error.skillMissingName") };
       }
@@ -176,18 +197,11 @@ export default async function skillsRoute(app, { engine }) {
 
       // 复制到用户技能目录
       const dstDir = path.join(userDir, safeName);
-      if (skillDir === srcPath) {
-        // 文件夹模式：复制
+      if (fs.existsSync(dstDir)) rmDirSync(dstDir);
+      if (installedFromLocalDir) {
         copyDirSync(skillDir, dstDir);
       } else {
-        // zip 解压模式：移动（从临时目录）
-        if (fs.existsSync(dstDir)) rmDirSync(dstDir);
         fs.renameSync(skillDir, dstDir);
-        // 清理临时目录残留
-        const tmpParent = skillDir.includes(".tmp-install-")
-          ? (path.dirname(skillDir).includes(".tmp-install-") ? path.dirname(skillDir) : null)
-          : path.dirname(skillDir);
-        // 简单处理：找到 .tmp-install- 前缀的目录并清理
         for (const entry of fs.readdirSync(userDir)) {
           if (entry.startsWith(".tmp-install-")) {
             rmDirSync(path.join(userDir, entry));
@@ -198,18 +212,24 @@ export default async function skillsRoute(app, { engine }) {
       // 重新加载 skills 并自动启用
       await engine.reloadSkills();
 
-      // 将新技能加入当前 agent 的 enabled 列表
-      const agentId = engine.currentAgentId;
-      if (agentId) {
-        const configPath = path.join(engine.agentsDir, agentId, "config.yaml");
+      // 将新技能加入指定 agent 的 enabled 列表（默认可传 body.agentId，否则当前主助手）
+      let targetAgentId = engine.currentAgentId;
+      if (requestedAgentId && validateId(requestedAgentId) && agentExists(engine, requestedAgentId)) {
+        targetAgentId = requestedAgentId;
+      }
+      if (targetAgentId) {
+        const configPath = path.join(engine.agentsDir, targetAgentId, "config.yaml");
         if (fs.existsSync(configPath)) {
           const { loadConfig } = await import("../../lib/memory/config-loader.js");
           const cfg = loadConfig(configPath);
           const enabled = new Set(cfg?.skills?.enabled || []);
           enabled.add(safeName);
           saveConfig(configPath, { skills: { enabled: [...enabled] } });
-          // 同步 engine 内存状态
-          await engine.updateConfig({ skills: { enabled: [...enabled] } });
+          if (targetAgentId === engine.currentAgentId) {
+            await engine.updateConfig({ skills: { enabled: [...enabled] } });
+          } else {
+            engine.getAgent(targetAgentId)?.reloadConfigFromDisk();
+          }
         }
       }
 

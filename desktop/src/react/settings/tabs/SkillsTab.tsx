@@ -4,6 +4,7 @@ import { hanaFetch } from '../api';
 import { t, autoSaveConfig } from '../helpers';
 import { Toggle } from '../widgets/Toggle';
 import { loadSettingsConfig } from '../actions';
+import { collectDropPaths } from '../../utils/collect-drop-paths';
 import styles from '../Settings.module.css';
 
 const platform = window.platform;
@@ -93,29 +94,29 @@ export function SkillsTab() {
 
   const installSkill = async () => {
     const selectedPath = await platform?.selectSkill?.();
-    if (!selectedPath) return;
-    await installSkillFromPath(selectedPath);
+    if (selectedPath == null) return;
+    const trimmed = String(selectedPath).trim();
+    if (!trimmed) {
+      showToast(t('settings.skills.installEmptyPath'), 'error');
+      return;
+    }
+    await installSkillFromPath(trimmed);
   };
 
   const installSkillFromPath = async (filePath: string) => {
     try {
+      const agentId = useSettingsStore.getState().getSettingsAgentId();
       const res = await hanaFetch('/api/skills/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath }),
+        body: JSON.stringify({ path: filePath, agentId: agentId || undefined }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       showToast(t('settings.skills.installSuccess', { name: data.skill?.name || '' }), 'success');
       await loadSkills();
-      if (data.skill?.baseDir) {
-        platform?.openSkillViewer?.({
-          name: data.skill.name,
-          baseDir: data.skill.baseDir,
-          filePath: data.skill.filePath,
-          installed: true,
-        });
-      }
+      platform?.notifyMainWindow?.('skills-changed', {});
+      // 不自动 openSkillViewer：主进程会 focus 主窗口，设置页像被关掉；留在设置内列表已 refresh 即可
     } catch (err: any) {
       showToast(t('settings.skills.installError') + ': ' + err.message, 'error');
     }
@@ -160,11 +161,16 @@ export function SkillsTab() {
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     (e.currentTarget as HTMLElement).classList.remove(styles['drag-over']);
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-    const filePath = platform?.getFilePath?.(file) || (file as any)?.path;
-    if (filePath) await installSkillFromPath(filePath);
+    const paths = collectDropPaths(e);
+    if (paths.length === 0) {
+      showToast(t('settings.skills.dropNoPath'), 'error');
+      return;
+    }
+    for (const filePath of paths) {
+      await installSkillFromPath(filePath);
+    }
   };
 
   // 外部路径管理
@@ -266,7 +272,12 @@ export function SkillsTab() {
         <div
           className={styles['skills-dropzone']}
           onClick={installSkill}
-          onDragOver={(e) => { e.preventDefault(); (e.currentTarget as HTMLElement).classList.add(styles['drag-over']); }}
+          onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            (e.currentTarget as HTMLElement).classList.add(styles['drag-over']);
+          }}
           onDragLeave={(e) => (e.currentTarget as HTMLElement).classList.remove(styles['drag-over'])}
           onDrop={handleDrop}
         >

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../../stores';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import type { CwdSkillInfo } from '../../stores/desk-slice';
+import { collectDropPaths } from '../../utils/collect-drop-paths';
 import css from './Desk.module.css';
 
 // ── 加载 CWD skills ──
@@ -119,17 +120,15 @@ export function DeskCwdSkillsPanel() {
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragging(false);
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length === 0) return;
+    const paths = collectDropPaths(e);
     const dir = useStore.getState().deskBasePath;
-    console.log('[cwd-skills] drop: files=', files.length, 'dir=', dir);
-    if (!dir) return;
+    console.log('[cwd-skills] drop: paths=', paths.length, 'dir=', dir);
+    if (!dir || paths.length === 0) return;
     let installed = false;
-    for (const file of files) {
-      const filePath = window.platform?.getFilePath?.(file);
-      console.log('[cwd-skills] filePath=', filePath, 'file.name=', file.name);
-      if (!filePath) continue;
+    for (const filePath of paths) {
+      console.log('[cwd-skills] filePath=', filePath);
       try {
         const res = await hanaFetch('/api/desk/install-skill', {
           method: 'POST',

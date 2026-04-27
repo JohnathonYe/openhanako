@@ -59,6 +59,20 @@ export class AgentManager {
   /** 按 ID 获取 agent */
   getAgent(agentId) { return this._agents.get(agentId) || null; }
 
+  /**
+   * 按数据目录解析已加载的 agent（供 buildTools 等按 agentDir 归属）
+   * @param {string} dir - 绝对或相对路径
+   * @returns {import('./agent.js').Agent|null}
+   */
+  findAgentByDir(dir) {
+    if (!dir || typeof dir !== "string") return null;
+    const norm = path.resolve(dir);
+    for (const ag of this._agents.values()) {
+      if (path.resolve(ag.agentDir) === norm) return ag;
+    }
+    return null;
+  }
+
   // ── Activity Store（per-agent 懒缓存） ──
 
   get activityStores() { return this._activityStores; }
